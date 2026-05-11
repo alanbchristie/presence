@@ -111,6 +111,23 @@ $ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/1/ | jq .
 }
 ```
 
+The same call via [HTTPie](https://httpie.io/) (header syntax is `Name:Value`):
+
+```
+$ http GET http://localhost:8000/api/presence/1/ X-API-Key:my-secret
+HTTP/1.1 200 OK
+Content-Type: application/json
+...
+
+{
+    "id": 1,
+    "name": "Living room",
+    ...
+}
+```
+
+HTTPie is in the `dev` dependency group; install it locally with `uv sync --group dev` (or run on demand with `uvx httpie`).
+
 - Missing or wrong `X-API-Key` (when configured) → `403`.
 - Unknown PK → `404`.
 
