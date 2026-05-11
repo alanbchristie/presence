@@ -1,0 +1,13 @@
+{
+    # Address ACME registers with Let's Encrypt for expiry notifications.
+    email alan@kaitak.co.uk
+}
+
+# The site address controls Caddy's TLS strategy:
+#   - public hostname (e.g. presence.example.com) -> Let's Encrypt
+#   - localhost                                    -> Caddy's internal CA
+#   - http://...                                   -> no TLS (plain HTTP)
+{$PRESENCE_DOMAIN:localhost} {
+    encode zstd gzip
+    reverse_proxy web:8000
+}

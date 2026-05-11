@@ -1,0 +1,15 @@
+[project]
+name = "presence"
+version = "0.1.0"
+description = "Django app that simulates on/off presence within a daily window."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Alan B. Christie"}]
+requires-python = ">=3.14"
+dependencies = [
+    "astral>=3.2",
+    "django>=6.0,<7.0",
+    "gunicorn>=26.0.0",
+    "whitenoise>=6.12.0",
+]

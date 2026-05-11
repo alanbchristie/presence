@@ -1,0 +1,44 @@
+services:
+  web:
+    build: .
+    image: presence-web
+    container_name: presence-web
+    ports:
+    - "8000:8000"
+    environment:
+      PRESENCE_DB_PATH: /data/db.sqlite3
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,[::1],${PRESENCE_DOMAIN:-}"
+      DJANGO_SUPERUSER_USERNAME: admin
+      DJANGO_SUPERUSER_EMAIL: alan@kaitak.co.uk
+      DJANGO_SUPERUSER_PASSWORD: admin
+      PRESENCE_API_KEY: ${PRESENCE_API_KEY:-}
+      PRESENCE_SERVER: ${PRESENCE_SERVER:-runserver}
+    volumes:
+    - presence-data:/data
+    restart: unless-stopped
+
+  caddy:
+    profiles:
+    - "tls"
+    image: caddy:2-alpine
+    container_name: presence-caddy
+    restart: unless-stopped
+    ports:
+    - "80:80"
+    - "443:443"
+    - "443:443/udp"
+    environment:
+      PRESENCE_DOMAIN: ${PRESENCE_DOMAIN:-localhost}
+    volumes:
+    - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    - caddy-data:/data
+    - caddy-config:/config
+    depends_on:
+    - web
+
+volumes:
+  presence-data:
+  caddy-data:
+  caddy-config:

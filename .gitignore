@@ -1,0 +1,72 @@
+# --- Python bytecode / build artefacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- uv ---
+# uv.lock and .python-version ARE checked in (intentionally).
+
+# --- Django ---
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+db.sqlite3
+local_settings.py
+staticfiles/
+media/
+
+# --- Secrets / per-environment overrides ---
+.env
+.env.*
+!.env.example
+
+# --- Test / lint / type-check caches ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# --- Editors / IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# --- OS junk ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# --- Claude Code session state / local plans ---
+.claude/
+
+# --- Local Caddy state (if anyone runs caddy outside Docker) ---
+caddy-data/
+caddy-config/

@@ -1,0 +1,230 @@
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from astral.geocoder import database, lookup
+from astral.sun import sun
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
+from django.db import models
+
+MIN_DURATION = timedelta(minutes=1)
+
+
+def validate_iana_timezone(value: str) -> None:
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError:
+        raise ValidationError(f"{value!r} is not a valid IANA timezone name.")
+
+
+def validate_astral_city(value: str) -> None:
+    if not value:
+        return
+    try:
+        lookup(value, database())
+    except KeyError:
+        raise ValidationError(
+            f"{value!r} is not in astral's built-in city database. "
+            "See https://astral.readthedocs.io for the list."
+        )
+
+
+class Presence(models.Model):
+    class State(models.TextChoices):
+        ON = "on", "on"
+        OFF = "off", "off"
+
+    name = models.CharField(max_length=64, unique=True)
+    enabled = models.BooleanField(default=True)
+
+    min_on_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
+    max_on_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
+    min_off_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
+    max_off_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
+
+    earliest_on = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Wall-clock time of day when the window opens. "
+                  "Leave blank when 'earliest on relative to sunset' is checked.",
+    )
+    latest_off = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Wall-clock time of day when the window closes. "
+                  "Leave blank when 'latest off relative to sunrise' is checked. "
+                  "If <= earliest_on, the window wraps past midnight.",
+    )
+    timezone = models.CharField(
+        max_length=64,
+        validators=[validate_iana_timezone],
+        help_text="IANA timezone name (e.g. Europe/London) that the wall-clock window times are interpreted in.",
+    )
+
+    earliest_on_relative_to_sunset = models.BooleanField(
+        default=False,
+        help_text="If set, the window opens at sunset + earliest_on_offset (offset may be negative).",
+    )
+    earliest_on_offset = models.DurationField(
+        null=True,
+        blank=True,
+        help_text="Signed offset from sunset, e.g. -1:00:00 for one hour before sunset. "
+                  "Required when 'earliest on relative to sunset' is checked.",
+    )
+    latest_off_relative_to_sunrise = models.BooleanField(
+        default=False,
+        help_text="If set, the window closes at sunrise + latest_off_offset (offset may be negative).",
+    )
+    latest_off_offset = models.DurationField(
+        null=True,
+        blank=True,
+        help_text="Signed offset from sunrise, e.g. 2:00:00 for two hours after sunrise. "
+                  "Required when 'latest off relative to sunrise' is checked.",
+    )
+    city = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_astral_city],
+        help_text="Name of a city from astral's built-in database. "
+                  "Required when either window edge is solar-relative.",
+    )
+
+    current_state = models.CharField(
+        max_length=3,
+        choices=State.choices,
+        default=State.OFF,
+    )
+    state_since = models.DateTimeField(null=True, blank=True)
+    next_transition_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Presences"
+
+    def __str__(self) -> str:
+        return self.name
+
+    def clean(self) -> None:
+        errors: dict[str, str] = {}
+        if (
+            self.min_on_duration is not None
+            and self.max_on_duration is not None
+            and self.max_on_duration < self.min_on_duration
+        ):
+            errors["max_on_duration"] = "Must be >= min_on_duration."
+        if (
+            self.min_off_duration is not None
+            and self.max_off_duration is not None
+            and self.max_off_duration < self.min_off_duration
+        ):
+            errors["max_off_duration"] = "Must be >= min_off_duration."
+
+        # earliest_on edge: exactly one of absolute or solar must be configured
+        if self.earliest_on_relative_to_sunset:
+            if self.earliest_on_offset is None:
+                errors["earliest_on_offset"] = (
+                    "Required when 'earliest on relative to sunset' is checked."
+                )
+        else:
+            if self.earliest_on is None:
+                errors["earliest_on"] = (
+                    "Required unless 'earliest on relative to sunset' is checked."
+                )
+
+        # latest_off edge: same dichotomy
+        if self.latest_off_relative_to_sunrise:
+            if self.latest_off_offset is None:
+                errors["latest_off_offset"] = (
+                    "Required when 'latest off relative to sunrise' is checked."
+                )
+        else:
+            if self.latest_off is None:
+                errors["latest_off"] = (
+                    "Required unless 'latest off relative to sunrise' is checked."
+                )
+
+        # If any solar edge, city is required
+        if (
+            self.earliest_on_relative_to_sunset
+            or self.latest_off_relative_to_sunrise
+        ) and not self.city:
+            errors["city"] = (
+                "Required when either window edge is solar-relative."
+            )
+
+        # absolute-vs-absolute zero-length check (still meaningful when both edges absolute)
+        if (
+            not self.earliest_on_relative_to_sunset
+            and not self.latest_off_relative_to_sunrise
+            and self.earliest_on is not None
+            and self.latest_off is not None
+            and self.earliest_on == self.latest_off
+        ):
+            errors["latest_off"] = (
+                "Must differ from earliest_on (a zero-length window is ambiguous)."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    # --- helpers ---------------------------------------------------------
+
+    def _zone(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+
+    def _solar(self, on_date: date) -> dict:
+        location = lookup(self.city, database())
+        return sun(location.observer, date=on_date, tzinfo=self._zone())
+
+    def _window_open_for_date(self, on_date: date) -> datetime:
+        zone = self._zone()
+        if self.earliest_on_relative_to_sunset:
+            return self._solar(on_date)["sunset"] + self.earliest_on_offset
+        return datetime.combine(on_date, self.earliest_on, tzinfo=zone)
+
+    def _window_close_for_date(self, on_date: date) -> datetime:
+        zone = self._zone()
+        if self.latest_off_relative_to_sunrise:
+            return self._solar(on_date)["sunrise"] + self.latest_off_offset
+        return datetime.combine(on_date, self.latest_off, tzinfo=zone)
+
+    def _window_for_date(self, on_date: date) -> tuple[datetime, datetime]:
+        """Return (open_dt, close_dt) for the window anchored on `on_date`.
+        close_dt is always strictly after open_dt; if the same-date close would
+        be at or before the open, the close rolls to the next day (wrap).
+        """
+        open_dt = self._window_open_for_date(on_date)
+        close_dt = self._window_close_for_date(on_date)
+        if close_dt <= open_dt:
+            close_dt = self._window_close_for_date(on_date + timedelta(days=1))
+        return open_dt, close_dt
+
+    def is_in_window(self, now: datetime) -> bool:
+        local = now.astimezone(self._zone())
+        today = local.date()
+        for d in (today - timedelta(days=1), today, today + timedelta(days=1)):
+            open_dt, close_dt = self._window_for_date(d)
+            if open_dt <= now < close_dt:
+                return True
+        return False
+
+    def next_window_open(self, now: datetime) -> datetime:
+        local = now.astimezone(self._zone())
+        today = local.date()
+        for d in (today, today + timedelta(days=1), today + timedelta(days=2)):
+            open_dt = self._window_open_for_date(d)
+            if open_dt > now:
+                return open_dt
+        raise RuntimeError("could not determine next window open")
+
+    def window_close_after(self, now: datetime) -> datetime:
+        local = now.astimezone(self._zone())
+        today = local.date()
+        for d in (today - timedelta(days=1), today, today + timedelta(days=1), today + timedelta(days=2)):
+            close_dt = self._window_close_for_date(d)
+            if close_dt > now:
+                return close_dt
+        raise RuntimeError("could not determine window close")
