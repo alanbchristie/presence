@@ -59,10 +59,34 @@ class Presence(models.Model):
     name = models.CharField(max_length=64, unique=True)
     enabled = models.BooleanField(default=True)
 
-    min_on_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
-    max_on_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
-    min_off_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
-    max_off_duration = models.DurationField(validators=[MinValueValidator(MIN_DURATION)])
+    min_on_duration = models.DurationField(
+        validators=[MinValueValidator(MIN_DURATION)],
+        help_text=(
+            "Clock-style duration HH:MM:SS, e.g. 00:01:30 for 1 min 30 sec, "
+            "01:00:00 for 1 hour. Minimum 1 minute."
+        ),
+    )
+    max_on_duration = models.DurationField(
+        validators=[MinValueValidator(MIN_DURATION)],
+        help_text=(
+            "Clock-style duration HH:MM:SS, e.g. 02:00:00 for 2 hours. "
+            "Must be >= min_on_duration."
+        ),
+    )
+    min_off_duration = models.DurationField(
+        validators=[MinValueValidator(MIN_DURATION)],
+        help_text=(
+            "Clock-style duration HH:MM:SS, e.g. 00:05:00 for 5 minutes. "
+            "Minimum 1 minute."
+        ),
+    )
+    max_off_duration = models.DurationField(
+        validators=[MinValueValidator(MIN_DURATION)],
+        help_text=(
+            "Clock-style duration HH:MM:SS, e.g. 00:45:00 for 45 minutes. "
+            "Must be >= min_off_duration."
+        ),
+    )
 
     earliest_on = models.TimeField(
         null=True,
