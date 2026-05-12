@@ -33,6 +33,7 @@ def _serialize(p: Presence) -> dict:
     zone = ZoneInfo(p.timezone)
     return {
         "id": p.pk,
+        "identifier": p.identifier,
         "name": p.name,
         "enabled": p.enabled,
         "timezone": p.timezone,
@@ -57,6 +58,6 @@ def _serialize(p: Presence) -> dict:
 
 @require_api_key
 @require_GET
-def presence_detail(request, pk: int):
-    presence = get_object_or_404(Presence, pk=pk)
+def presence_detail(request, identifier: str):
+    presence = get_object_or_404(Presence, identifier=identifier)
     return JsonResponse(_serialize(presence))

@@ -7,6 +7,8 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
 ## Features
 
 - **Per-row configuration** stored as `Presence` model instances (admin-editable):
+  - `identifier` — URL-safe RFC 1123 DNS label (unique) used in the REST API path
+  - `name` — human-readable label
   - `min_on_duration`, `max_on_duration`, `min_off_duration`, `max_off_duration` (≥ 1 minute each)
   - Daily active window via `earliest_on` / `latest_off` wall-clock times, or
   - Solar-relative window via `earliest_on_relative_to_sunset` / `earliest_on_offset` and `latest_off_relative_to_sunrise` / `latest_off_offset` (offsets are signed `HH:MM`/`HH:MM:SS` durations) using astral's built-in city database
@@ -16,7 +18,7 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
   - First action after each window open is always a randomised **off** phase, so state doesn't snap on at the boundary
   - Active "on" periods are force-truncated at the window close
   - Persists `current_state`, `state_since`, and `next_transition_at` so the admin shows live state
-- **JSON REST endpoint** at `GET /api/presence/<int:pk>/`:
+- **JSON REST endpoint** at `GET /api/presence/<identifier>/`:
   - Optional API key via `X-API-Key` header (configured by `PRESENCE_API_KEY`); if unset the endpoint is open
   - Timestamps render in the row's timezone at second precision
   - Durations render as `HH:MM`, solar offsets as `±HH:MM`
@@ -32,7 +34,7 @@ docker compose up -d --build
 That builds the image (Astral's `uv` slim base), runs migrations, attempts to create an `admin/admin` superuser (idempotent), and starts the dev server.
 
 - Admin: <http://localhost:8000/admin/> &nbsp; (`admin` / `admin`)
-- API: `curl http://localhost:8000/api/presence/<pk>/`
+- API: `curl http://localhost:8000/api/presence/<identifier>/`
 
 SQLite persists in the named volume `presence-data` (mounted at `/data` inside the container). `docker compose down` keeps it; `docker compose down -v` wipes it.
 
@@ -83,12 +85,13 @@ Container-only environment baked into `docker-compose.yml`:
 
 ## API
 
-`GET /api/presence/<pk>/` returns a JSON object describing the row. Example:
+`GET /api/presence/<identifier>/` returns a JSON object describing the row, where `<identifier>` is the row's RFC 1123-style identifier (e.g. `living-room`, `sequence-a`). Example:
 
 ```
-$ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/1/ | jq .
+$ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/living-room/ | jq .
 {
   "id": 1,
+  "identifier": "living-room",
   "name": "Living room",
   "enabled": true,
   "timezone": "Europe/London",
@@ -114,13 +117,14 @@ $ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/1/ | jq .
 The same call via [HTTPie](https://httpie.io/) (header syntax is `Name:Value`):
 
 ```
-$ http GET http://localhost:8000/api/presence/1/ X-API-Key:my-secret
+$ http GET http://localhost:8000/api/presence/living-room/ X-API-Key:my-secret
 HTTP/1.1 200 OK
 Content-Type: application/json
 ...
 
 {
     "id": 1,
+    "identifier": "living-room",
     "name": "Living room",
     ...
 }
@@ -129,11 +133,11 @@ Content-Type: application/json
 HTTPie is in the `dev` dependency group; install it locally with `uv sync --group dev` (or run on demand with `uvx httpie`).
 
 - Missing or wrong `X-API-Key` (when configured) → `403`.
-- Unknown PK → `404`.
+- Unknown identifier → `404`.
 
 ## Development (without Docker)
 
-Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/).
 
 ```
 uv sync                                 # create .venv, install pinned deps

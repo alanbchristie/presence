@@ -27,6 +27,7 @@ class PresenceAdmin(admin.ModelAdmin):
     form = PresenceAdminForm
     list_display = (
         "id",
+        "identifier",
         "name",
         "enabled",
         "current_state",
@@ -35,9 +36,10 @@ class PresenceAdmin(admin.ModelAdmin):
         "earliest_on",
         "latest_off",
     )
-    list_display_links = ("id", "name")
+    list_display_links = ("id", "identifier", "name")
     list_filter = ("enabled", "current_state")
-    search_fields = ("name", "id")
+    search_fields = ("identifier", "name", "id")
+    prepopulated_fields = {"identifier": ("name",)}
     readonly_fields = (
         "id",
         "current_state",
@@ -47,7 +49,7 @@ class PresenceAdmin(admin.ModelAdmin):
         "updated_at_utc",
     )
     fieldsets = (
-        ("Identity", {"fields": ("id", "name", "enabled")}),
+        ("Identity", {"fields": ("id", "identifier", "name", "enabled")}),
         (
             "Durations",
             {

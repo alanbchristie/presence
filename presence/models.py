@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -8,6 +9,17 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 MIN_DURATION = timedelta(minutes=1)
+
+_DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+
+
+def validate_dns_label(value: str) -> None:
+    if not _DNS_LABEL_RE.match(value or ""):
+        raise ValidationError(
+            "Identifier must be an RFC 1123 DNS label: 1-63 lowercase "
+            "letters/digits, with optional internal hyphens (not at the "
+            "start or end)."
+        )
 
 
 def validate_iana_timezone(value: str) -> None:
@@ -34,6 +46,16 @@ class Presence(models.Model):
         ON = "on", "on"
         OFF = "off", "off"
 
+    identifier = models.CharField(
+        max_length=63,
+        unique=True,
+        validators=[validate_dns_label],
+        help_text=(
+            "URL-safe identifier used in the REST API path. Must be an "
+            "RFC 1123 DNS label: 1-63 lowercase letters/digits with "
+            "optional internal hyphens."
+        ),
+    )
     name = models.CharField(max_length=64, unique=True)
     enabled = models.BooleanField(default=True)
 
