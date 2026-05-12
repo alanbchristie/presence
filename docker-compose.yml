@@ -31,6 +31,7 @@ services:
     - "443:443/udp"
     environment:
       PRESENCE_DOMAIN: ${PRESENCE_DOMAIN:-localhost}
+      CADDY_EMAIL: ${CADDY_EMAIL:-me@example.com}
     volumes:
     - ./Caddyfile:/etc/caddy/Caddyfile:ro
     - caddy-data:/data

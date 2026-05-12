@@ -1,6 +1,9 @@
 {
     # Address ACME registers with Let's Encrypt for expiry notifications.
-    email alan@kaitak.co.uk
+    # Sourced from the CADDY_EMAIL environment variable; docker-compose
+    # provides a default so this is never empty (an empty `email` line
+    # is a Caddyfile parse error).
+    email {$CADDY_EMAIL}
 }
 
 # The site address controls Caddy's TLS strategy:
