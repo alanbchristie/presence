@@ -1,5 +1,7 @@
 # presence
 
+![GitHub Release](https://img.shields.io/github/v/release/alanbchristie/presence?include_prereleases)
+
 A small Django app that simulates the presence of someone in a building by toggling a configurable process between **on** and **off** with randomised durations, constrained to a daily time window. The window can be expressed either as wall-clock times in a chosen IANA timezone or relative to local sunset/sunrise.
 
 Originally written as a way to drive lights with non-fixed schedules so a property doesn't look obviously empty when the occupants are away.
