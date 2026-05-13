@@ -56,8 +56,20 @@ class Presence(models.Model):
             "optional internal hyphens."
         ),
     )
-    name = models.CharField(max_length=64, unique=True)
-    enabled = models.BooleanField(default=True)
+    name = models.CharField(
+        max_length=64,
+        help_text=(
+            "Human-readable label shown in the admin. Not required to be "
+            "unique; the `identifier` field is the unique key."
+        ),
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Uncheck to pause this row without deleting it. The runner thread "
+            "skips disabled rows and stops mutating their state."
+        ),
+    )
 
     min_on_duration = models.DurationField(
         validators=[MinValueValidator(MIN_DURATION)],
@@ -140,12 +152,36 @@ class Presence(models.Model):
         max_length=3,
         choices=State.choices,
         default=State.OFF,
+        help_text=(
+            "Live on/off state, maintained by the background runner. "
+            "Read-only; manual edits will be overwritten on the next tick."
+        ),
     )
-    state_since = models.DateTimeField(null=True, blank=True)
-    next_transition_at = models.DateTimeField(null=True, blank=True)
+    state_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the current state was entered. Stored in UTC; the admin "
+            "renders it in the row's timezone."
+        ),
+    )
+    next_transition_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Scheduled time of the next on/off flip. Stored in UTC; the "
+            "admin renders it in the row's timezone."
+        ),
+    )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this row was first saved. Stored and shown in UTC.",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When this row was last saved. Stored and shown in UTC.",
+    )
 
     class Meta:
         verbose_name_plural = "Presences"
