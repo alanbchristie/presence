@@ -65,7 +65,9 @@ Desktop.ini
 ehthumbs.db
 
 # --- Claude Code session state / local plans ---
-.claude/
+.claude/*
+# ...but track the team-shared project settings
+!.claude/settings.json
 
 # --- Local Caddy state (if anyone runs caddy outside Docker) ---
 caddy-data/
