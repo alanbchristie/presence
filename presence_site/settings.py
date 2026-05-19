@@ -35,6 +35,22 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# Origins trusted for unsafe (POST/PUT/...) requests. Django 4.0+ requires the
+# scheme, and an HTTPS origin must be listed explicitly here even if its host is
+# already in ALLOWED_HOSTS — otherwise the admin login POST fails with
+# "Origin checking failed ... does not match any trusted origins".
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+]
+
+# Caddy terminates TLS and reverse-proxies plain HTTP to this app, so without
+# this Django thinks every request is insecure: is_secure() is False, the CSRF
+# origin check expects http:// (mismatching the browser's https:// Origin), and
+# secure cookies/redirects misbehave. Caddy sends X-Forwarded-Proto by default.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
