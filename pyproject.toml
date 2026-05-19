@@ -17,4 +17,15 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpie>=3.2.4",
+    {include-group = "test"},
 ]
+test = [
+    "pytest>=8.3",
+    "pytest-django>=4.9",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "presence_site.settings"
+python_files = ["test_*.py"]
+testpaths = ["presence"]
+addopts = "-ra"
