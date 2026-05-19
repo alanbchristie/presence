@@ -5,16 +5,17 @@ Prefix Django/Python commands with `uv run`.
 
 ```
 uv sync                                     # create .venv from the lockfile
-uv sync --group dev                         # + dev tools (httpie)
+uv sync --group dev                         # + dev tools (httpie) and pytest
 uv run python manage.py migrate
 uv run python manage.py makemigrations presence
 uv run python manage.py runserver           # also boots the runner thread
-uv run python manage.py test                # Django test runner
-uv run python manage.py test presence.tests.SomeTest.test_x   # single test
+uv run pytest                               # run the test suite
+uv run pytest presence/tests/test_models.py::test_str_returns_name   # single test
 ```
 
-Note: `presence/tests.py` is currently an empty placeholder — there is no real
-suite yet. New tests go there (or a `presence/tests/` package).
+Note: tests live in the `presence/tests/` package (`test_models.py`, pytest +
+pytest-django). Run them with `uv run pytest`; CI runs the same suite in the
+`tests` job of `.github/workflows/build.yml`.
 
 Docker (full stack with persisted SQLite):
 
