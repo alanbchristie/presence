@@ -19,6 +19,7 @@
     th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid #8884; }
     th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #888; }
     tr.disabled { opacity: 0.5; }
+    th.center, td.center { text-align: center; }
     .name { font-weight: 600; }
     .identifier a { color: inherit; text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.9rem; }
     .identifier a:hover { text-decoration: underline; }
@@ -36,27 +37,27 @@
 </head>
 <body>
   <h1>Presence</h1>
-  <p class="hint">Live on/off state &mdash; refreshes every 60 seconds.</p>
+  <p class="hint">Live on/off state &mdash; refreshes every 20 seconds.</p>
 
   {% if presences %}
   <table>
     <thead>
       <tr>
-        <th>State</th>
+        <th class="center">State</th>
         <th>Name</th>
         <th>Identifier</th>
-        <th>Enabled</th>
+        <th class="center">Enabled</th>
       </tr>
     </thead>
     <tbody>
       {% for p in presences %}
       <tr class="{% if not p.enabled %}disabled{% endif %}">
-        <td>
+        <td class="center">
           <span class="led {{ p.current_state }}" title="{{ p.current_state }}"></span>
         </td>
         <td class="name">{{ p.name }}</td>
         <td class="identifier"><a href="/api/presence/{{ p.identifier }}/">{{ p.identifier }}</a></td>
-        <td>
+        <td class="center">
           {% if p.enabled %}
             <span class="enabled-dot yes" title="Enabled"></span>
           {% else %}
