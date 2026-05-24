@@ -32,7 +32,6 @@
     .enabled-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; vertical-align: middle; }
     .enabled-dot.yes { background: #2ecc40; }
     .enabled-dot.no  { background: transparent; border: 2px solid #888; }
-    .state-label { margin-left: 0.5rem; font-size: 0.85rem; color: #888; vertical-align: middle; }
   </style>
 </head>
 <body>
@@ -53,18 +52,15 @@
       {% for p in presences %}
       <tr class="{% if not p.enabled %}disabled{% endif %}">
         <td>
-          <span class="led {{ p.current_state }}"></span>
-          <span class="state-label">{{ p.current_state }}</span>
+          <span class="led {{ p.current_state }}" title="{{ p.current_state }}"></span>
         </td>
         <td class="name">{{ p.name }}</td>
         <td class="identifier"><a href="/api/presence/{{ p.identifier }}/">{{ p.identifier }}</a></td>
         <td>
           {% if p.enabled %}
             <span class="enabled-dot yes" title="Enabled"></span>
-            <span class="state-label">enabled</span>
           {% else %}
             <span class="enabled-dot no" title="Disabled"></span>
-            <span class="state-label">disabled</span>
           {% endif %}
         </td>
       </tr>
