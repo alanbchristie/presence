@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="60">
+  <title>Presence</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 2rem auto;
+      max-width: 48rem;
+      padding: 0 1rem;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .hint { color: #888; font-size: 0.85rem; margin-top: 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1.5rem; }
+    th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid #8884; }
+    th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #888; }
+    tr.disabled { opacity: 0.5; }
+    .name { font-weight: 600; }
+    .identifier a { color: inherit; text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.9rem; }
+    .identifier a:hover { text-decoration: underline; }
+
+    /* On/off state LED */
+    .led { width: 14px; height: 14px; border-radius: 50%; display: inline-block; vertical-align: middle; }
+    .led.on  { background: #2ecc40; box-shadow: 0 0 6px 2px rgba(46, 204, 64, 0.7); }
+    .led.off { background: #444; }
+
+    /* Enabled indicator: solid dot when enabled, hollow when paused */
+    .enabled-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; vertical-align: middle; }
+    .enabled-dot.yes { background: #2ecc40; }
+    .enabled-dot.no  { background: transparent; border: 2px solid #888; }
+    .state-label { margin-left: 0.5rem; font-size: 0.85rem; color: #888; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <h1>Presence</h1>
+  <p class="hint">Live on/off state &mdash; refreshes every 60 seconds.</p>
+
+  {% if presences %}
+  <table>
+    <thead>
+      <tr>
+        <th>State</th>
+        <th>Name</th>
+        <th>Identifier</th>
+        <th>Enabled</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in presences %}
+      <tr class="{% if not p.enabled %}disabled{% endif %}">
+        <td>
+          <span class="led {{ p.current_state }}"></span>
+          <span class="state-label">{{ p.current_state }}</span>
+        </td>
+        <td class="name">{{ p.name }}</td>
+        <td class="identifier"><a href="/api/presence/{{ p.identifier }}/">{{ p.identifier }}</a></td>
+        <td>
+          {% if p.enabled %}
+            <span class="enabled-dot yes" title="Enabled"></span>
+            <span class="state-label">enabled</span>
+          {% else %}
+            <span class="enabled-dot no" title="Disabled"></span>
+            <span class="state-label">disabled</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No presence records yet.</p>
+  {% endif %}
+</body>
+</html>

@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
@@ -61,3 +62,10 @@ def _serialize(p: Presence) -> dict:
 def presence_detail(request, identifier: str):
     presence = get_object_or_404(Presence, identifier=identifier)
     return JsonResponse(_serialize(presence))
+
+
+@login_required(login_url="admin:login")
+@require_GET
+def index(request):
+    presences = Presence.objects.order_by("name")
+    return render(request, "presence/index.html", {"presences": presences})
