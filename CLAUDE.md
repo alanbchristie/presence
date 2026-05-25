@@ -94,3 +94,5 @@ settings, follow the existing pattern: env var → settings.py → documented in
   directly to `main`).
 - `entrypoint.sh` runs migrations and an idempotent `createsuperuser` on boot —
   schema changes ship as migrations, no manual DB steps in deploy docs.
+- Use "conventional commits"
+  
