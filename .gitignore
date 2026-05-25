@@ -69,6 +69,7 @@ ehthumbs.db
 # ...but track the team-shared project settings and skills
 !.claude/settings.json
 !.claude/skills/
+!.claude/commands/
 
 # --- Local Caddy state (if anyone runs caddy outside Docker) ---
 caddy-data/
