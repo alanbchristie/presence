@@ -64,7 +64,7 @@ def presence_detail(request, identifier: str):
     return JsonResponse(_serialize(presence))
 
 
-@login_required(login_url="admin:login")
+@login_required
 @require_GET
 def index(request):
     presences = Presence.objects.order_by("name")

@@ -1,20 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+{% extends "base.html" %}
+
+{% block extra_head %}
   <meta http-equiv="refresh" content="20">
-  <title>Presence</title>
   <style>
-    :root { color-scheme: light dark; }
-    body {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      margin: 2rem auto;
-      max-width: 48rem;
-      padding: 0 1rem;
-    }
-    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-    .hint { color: #888; font-size: 0.85rem; margin-top: 0; }
     table { border-collapse: collapse; width: 100%; margin-top: 1.5rem; }
     th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid #8884; }
     th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #888; }
@@ -34,8 +22,9 @@
     .enabled-dot.yes { background: #2ecc40; }
     .enabled-dot.no  { background: transparent; border: 2px solid #888; }
   </style>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
   <h1>Presence</h1>
   <p class="hint">Live on/off state &mdash; refreshes every 20 seconds.</p>
 
@@ -71,5 +60,4 @@
   {% else %}
   <p>No presence records yet.</p>
   {% endif %}
-</body>
-</html>
+{% endblock %}
