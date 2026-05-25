@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}{{ presence.name }} &mdash; Presence{% endblock %}
+
+{% block content %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'index' %}" class="link-secondary text-decoration-none">Presence</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ presence.identifier }}</li>
+    </ol>
+  </nav>
+
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <h1 class="h3 mb-0">{{ presence.name }}</h1>
+    {% if not presence.enabled %}
+      <span class="badge rounded-pill text-bg-secondary">{{ presence.current_state|capfirst }}</span>
+      <span class="badge rounded-pill text-bg-danger">Disabled</span>
+    {% else %}
+      {% if presence.current_state == "on" %}
+        <span class="badge rounded-pill text-bg-success">On</span>
+      {% else %}
+        <span class="badge rounded-pill text-bg-danger">Off</span>
+      {% endif %}
+      <span class="badge rounded-pill text-bg-success">Enabled</span>
+    {% endif %}
+  </div>
+
+  <dl class="row">
+    <dt class="col-sm-3">Identifier</dt>
+    <dd class="col-sm-9 font-monospace">{{ presence.identifier }}</dd>
+
+    <dt class="col-sm-3">Timezone</dt>
+    <dd class="col-sm-9">{{ presence.timezone }}</dd>
+
+    <dt class="col-sm-3">Earliest on</dt>
+    <dd class="col-sm-9">
+      {% if data.earliest_on_relative_to_sunset %}
+        {{ data.earliest_on_offset }} relative to sunset{% if data.city %} ({{ data.city }}){% endif %}
+      {% else %}
+        {{ data.earliest_on }}
+      {% endif %}
+    </dd>
+
+    <dt class="col-sm-3">Latest off</dt>
+    <dd class="col-sm-9">
+      {% if data.latest_off_relative_to_sunrise %}
+        {{ data.latest_off_offset }} relative to sunrise{% if data.city %} ({{ data.city }}){% endif %}
+      {% else %}
+        {{ data.latest_off }}
+      {% endif %}
+    </dd>
+
+    <dt class="col-sm-3">On duration</dt>
+    <dd class="col-sm-9">{{ data.min_on_duration }} &ndash; {{ data.max_on_duration }}</dd>
+
+    <dt class="col-sm-3">Off duration</dt>
+    <dd class="col-sm-9">{{ data.min_off_duration }} &ndash; {{ data.max_off_duration }}</dd>
+
+    <dt class="col-sm-3">In window</dt>
+    <dd class="col-sm-9">{{ data.in_window|yesno:"Yes,No" }}</dd>
+
+    <dt class="col-sm-3">State since</dt>
+    <dd class="col-sm-9">{{ data.state_since|default:"—" }}</dd>
+
+    <dt class="col-sm-3">Next transition</dt>
+    <dd class="col-sm-9">{{ data.next_transition_at|default:"—" }}</dd>
+  </dl>
+
+  <a href="/api/presence/{{ presence.identifier }}/" class="link-secondary small font-monospace">View as JSON</a>
+{% endblock %}
