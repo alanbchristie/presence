@@ -46,4 +46,8 @@
   {% else %}
   <p>No presence records yet.</p>
   {% endif %}
+
+  <div class="d-flex justify-content-end">
+    <a href="{% url 'add' %}" class="btn btn-primary">Add</a>
+  </div>
 {% endblock %}
