@@ -3,9 +3,9 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from .auth import require_api_key
 from .models import Presence
@@ -80,3 +80,11 @@ def detail(request, identifier: str):
         "presence/detail.html",
         {"presence": presence, "data": _serialize(presence)},
     )
+
+
+@login_required
+@require_POST
+def delete(request, identifier: str):
+    presence = get_object_or_404(Presence, identifier=identifier)
+    presence.delete()
+    return redirect("index")

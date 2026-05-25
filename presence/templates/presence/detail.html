@@ -66,5 +66,34 @@
     <dd class="col-sm-9">{{ data.next_transition_at|default:"—" }}</dd>
   </dl>
 
-  <a href="/api/presence/{{ presence.identifier }}/" class="link-secondary small font-monospace">View as JSON</a>
+  <div class="d-flex align-items-center justify-content-between mt-4">
+    <a href="/api/presence/{{ presence.identifier }}/" class="link-secondary small font-monospace">View as JSON</a>
+    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">Delete</button>
+  </div>
+
+  <!-- Delete confirmation modal -->
+  <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="deleteModalLabel">Delete {{ presence.name }}?</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">
+            This permanently deletes
+            <span class="font-monospace">{{ presence.identifier }}</span>.
+            This cannot be undone.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <form method="post" action="{% url 'delete' presence.identifier %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Delete</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}
