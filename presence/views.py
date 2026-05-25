@@ -69,3 +69,14 @@ def presence_detail(request, identifier: str):
 def index(request):
     presences = Presence.objects.order_by("name")
     return render(request, "presence/index.html", {"presences": presences})
+
+
+@login_required
+@require_GET
+def detail(request, identifier: str):
+    presence = get_object_or_404(Presence, identifier=identifier)
+    return render(
+        request,
+        "presence/detail.html",
+        {"presence": presence, "data": _serialize(presence)},
+    )

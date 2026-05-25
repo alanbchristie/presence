@@ -61,6 +61,49 @@ def test_index_marks_disabled_row(client, django_user_model, make_presence):
     assert '<span class="badge rounded-pill text-bg-danger">Disabled</span>' in body
 
 
+def test_index_identifier_links_to_detail_page(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+
+    client.force_login(user)
+    body = client.get("/").content.decode()
+
+    # The identifier links to the HTML detail page, not the JSON API endpoint.
+    assert f'href="{reverse("detail", args=[VALID_KWARGS["identifier"]])}"' in body
+
+
+def test_detail_redirects_anonymous_to_login(client, make_presence):
+    make_presence().save()
+    url = reverse("detail", args=[VALID_KWARGS["identifier"]])
+
+    response = client.get(url)
+
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+
+
+def test_detail_shows_record_for_logged_in_user(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence(current_state="on").save()
+    client.force_login(user)
+
+    body = client.get(reverse("detail", args=[VALID_KWARGS["identifier"]])).content.decode()
+
+    assert VALID_KWARGS["name"] in body
+    assert VALID_KWARGS["identifier"] in body
+    # On + enabled → a green state pill on the detail page too.
+    assert "text-bg-success" in body
+
+
+def test_detail_unknown_identifier_returns_404(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    response = client.get(reverse("detail", args=["does-not-exist"]))
+
+    assert response.status_code == 404
+
+
 def test_index_shows_username_and_logout_when_authenticated(client, django_user_model):
     user = django_user_model.objects.create_user(username="staff", password="pw")
 
