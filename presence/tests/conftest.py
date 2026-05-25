@@ -38,3 +38,18 @@ def make_presence():
         return Presence(**{**VALID_KWARGS, **overrides})
 
     return _factory
+
+
+@pytest.fixture(autouse=True)
+def _plain_static_storage(settings):
+    """Render `{% static %}` without a collectstatic manifest.
+
+    Tests run with DEBUG off, which selects WhiteNoise's manifest storage; that
+    raises ``Missing staticfiles manifest entry`` for the vendored Bootstrap
+    assets because the suite never runs collectstatic. Swap in the plain
+    storage (which just prefixes STATIC_URL) so templates render.
+    """
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
