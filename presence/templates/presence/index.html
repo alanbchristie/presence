@@ -2,55 +2,41 @@
 
 {% block extra_head %}
   <meta http-equiv="refresh" content="20">
-  <style>
-    table { border-collapse: collapse; width: 100%; margin-top: 1.5rem; }
-    th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid #8884; }
-    th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #888; }
-    tr.disabled { opacity: 0.5; }
-    th.center, td.center { text-align: center; }
-    .name { font-weight: 600; }
-    .identifier a { color: inherit; text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.9rem; }
-    .identifier a:hover { text-decoration: underline; }
-
-    /* On/off state LED */
-    .led { width: 14px; height: 14px; border-radius: 50%; display: inline-block; vertical-align: middle; }
-    .led.on  { background: #2ecc40; box-shadow: 0 0 6px 2px rgba(46, 204, 64, 0.7); }
-    .led.off { background: #ff4136; box-shadow: 0 0 6px 2px rgba(255, 65, 54, 0.7); }
-
-    /* Enabled indicator: solid dot when enabled, hollow when paused */
-    .enabled-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; vertical-align: middle; }
-    .enabled-dot.yes { background: #2ecc40; }
-    .enabled-dot.no  { background: transparent; border: 2px solid #888; }
-  </style>
 {% endblock %}
 
 {% block content %}
-  <h1>Presence</h1>
-  <p class="hint">Live on/off state &mdash; refreshes every 20 seconds.</p>
+  <h1 class="h3">Presence</h1>
+  <p class="text-secondary small">Live on/off state &mdash; refreshes every 20 seconds.</p>
 
   {% if presences %}
-  <table>
+  <table class="table table-hover align-middle">
     <thead>
       <tr>
-        <th class="center">State</th>
-        <th>Name</th>
-        <th>Identifier</th>
-        <th class="center">Enabled</th>
+        <th scope="col" class="text-center">State</th>
+        <th scope="col">Name</th>
+        <th scope="col">Identifier</th>
+        <th scope="col" class="text-center">Enabled</th>
       </tr>
     </thead>
     <tbody>
       {% for p in presences %}
-      <tr class="{% if not p.enabled %}disabled{% endif %}">
-        <td class="center">
-          <span class="led {{ p.current_state }}" title="{{ p.current_state }}"></span>
-        </td>
-        <td class="name">{{ p.name }}</td>
-        <td class="identifier"><a href="/api/presence/{{ p.identifier }}/">{{ p.identifier }}</a></td>
-        <td class="center">
-          {% if p.enabled %}
-            <span class="enabled-dot yes" title="Enabled"></span>
+      <tr>
+        <td class="text-center">
+          {% if not p.enabled %}
+            <span class="badge rounded-pill text-bg-secondary">{{ p.current_state|capfirst }}</span>
+          {% elif p.current_state == "on" %}
+            <span class="badge rounded-pill text-bg-success">On</span>
           {% else %}
-            <span class="enabled-dot no" title="Disabled"></span>
+            <span class="badge rounded-pill text-bg-danger">Off</span>
+          {% endif %}
+        </td>
+        <td class="fw-semibold">{{ p.name }}</td>
+        <td><a href="/api/presence/{{ p.identifier }}/" class="link-secondary text-decoration-none font-monospace">{{ p.identifier }}</a></td>
+        <td class="text-center">
+          {% if p.enabled %}
+            <span class="badge rounded-pill text-bg-success">Enabled</span>
+          {% else %}
+            <span class="badge rounded-pill text-bg-danger">Disabled</span>
           {% endif %}
         </td>
       </tr>

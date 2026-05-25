@@ -146,9 +146,20 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# WhiteNoise's manifest storage hashes filenames for far-future caching, but it
+# requires `collectstatic` to have populated STATIC_ROOT (see entrypoint.sh's
+# gunicorn path). That makes it unsuitable for `runserver`, so fall back to the
+# plain storage when DEBUG is on. The test suite (DEBUG off) overrides this to
+# the plain storage too — see presence/tests/conftest.py.
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        )
+    },
 }
 
 # Default primary key field type
