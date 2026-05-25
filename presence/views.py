@@ -5,9 +5,10 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .auth import require_api_key
+from .forms import PresenceForm
 from .models import Presence
 
 
@@ -80,6 +81,19 @@ def detail(request, identifier: str):
         "presence/detail.html",
         {"presence": presence, "data": _serialize(presence)},
     )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def add(request):
+    if request.method == "POST":
+        form = PresenceForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect("index")
+    else:
+        form = PresenceForm()
+    return render(request, "presence/add.html", {"form": form})
 
 
 @login_required

@@ -4,6 +4,8 @@ from datetime import timedelta
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 
+from .models import Presence
+
 _HH_MM_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2})$")
 _HH_MM_SS_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2}):(\d{2})$")
 
@@ -46,6 +48,56 @@ class SignedDurationFormField(forms.DurationField):
             td = timedelta(hours=int(h), minutes=int(mn))
             return -td if sign_str == "-" else td
         return super().to_python(value)
+
+
+class PresenceForm(forms.ModelForm):
+    """Create/edit form for a :class:`~presence.models.Presence`.
+
+    Exposes only the user-configurable fields; the runner-managed state
+    (`current_state`, `state_since`, `next_transition_at`) and the auto
+    timestamps are left off. Cross-field validation (duration ordering,
+    absolute-vs-solar window edges, city requirement) is inherited from
+    ``Presence.clean()``, which the ModelForm runs during validation.
+
+    The signed solar offsets reuse :class:`SignedDurationFormField` so they
+    render and parse as ±HH:MM, matching the API and admin.
+    """
+
+    earliest_on_offset = SignedDurationFormField(required=False)
+    latest_off_offset = SignedDurationFormField(required=False)
+
+    class Meta:
+        model = Presence
+        fields = [
+            "identifier",
+            "name",
+            "enabled",
+            "timezone",
+            "earliest_on",
+            "earliest_on_relative_to_sunset",
+            "earliest_on_offset",
+            "latest_off",
+            "latest_off_relative_to_sunrise",
+            "latest_off_offset",
+            "city",
+            "min_on_duration",
+            "max_on_duration",
+            "min_off_duration",
+            "max_off_duration",
+        ]
+        widgets = {
+            "earliest_on": forms.TimeInput(format="%H:%M", attrs={"type": "time"}),
+            "latest_off": forms.TimeInput(format="%H:%M", attrs={"type": "time"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            widget = field.widget
+            if isinstance(widget, forms.CheckboxInput):
+                widget.attrs["class"] = "form-check-input"
+            else:
+                widget.attrs["class"] = "form-control"
 
 
 class BootstrapAuthenticationForm(AuthenticationForm):

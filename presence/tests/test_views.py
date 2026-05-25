@@ -167,6 +167,90 @@ def test_delete_unknown_identifier_returns_404(client, django_user_model):
     assert response.status_code == 404
 
 
+#: A valid POST payload for the Add form (absolute window mode, fresh identifier).
+ADD_POST_DATA = {
+    "identifier": "desk-lamp",
+    "name": "Desk Lamp",
+    "enabled": "on",
+    "timezone": "UTC",
+    "earliest_on": "20:00",
+    "latest_off": "23:00",
+    "earliest_on_offset": "",
+    "latest_off_offset": "",
+    "city": "",
+    "min_on_duration": "01:00:00",
+    "max_on_duration": "02:00:00",
+    "min_off_duration": "01:00:00",
+    "max_off_duration": "02:00:00",
+}
+
+
+def test_index_shows_add_button_for_logged_in_user(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    body = client.get("/").content.decode()
+
+    # An Add button links to the add page (shown even with no records).
+    assert f'href="{reverse("add")}"' in body
+    assert "btn btn-primary" in body
+
+
+def test_add_redirects_anonymous_to_login(client):
+    response = client.get(reverse("add"))
+
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+
+
+def test_add_renders_form_for_logged_in_user(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    response = client.get(reverse("add"))
+
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert "<form" in body
+    # The form exposes the editable identifier but not the runner-managed state.
+    assert 'name="identifier"' in body
+    assert 'name="current_state"' not in body
+
+
+def test_add_creates_record_and_redirects_to_root(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    response = client.post(reverse("add"), ADD_POST_DATA)
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("index")
+    created = Presence.objects.get(identifier="desk-lamp")
+    assert created.name == "Desk Lamp"
+
+
+def test_add_invalid_re_renders_with_errors_and_creates_nothing(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    # Missing the required name field.
+    bad = {**ADD_POST_DATA, "name": ""}
+    response = client.post(reverse("add"), bad)
+
+    assert response.status_code == 200
+    assert response.context["form"].errors
+    assert not Presence.objects.filter(identifier="desk-lamp").exists()
+
+
+def test_add_get_does_not_create(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    client.get(reverse("add"))
+
+    assert not Presence.objects.exists()
+
+
 def test_index_shows_username_and_logout_when_authenticated(client, django_user_model):
     user = django_user_model.objects.create_user(username="staff", password="pw")
 
