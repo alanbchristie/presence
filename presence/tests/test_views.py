@@ -9,6 +9,8 @@ marked ``django_db`` (unlike the model suite, which uses unsaved instances).
 import pytest
 from django.urls import reverse
 
+from presence.models import Presence
+
 from .conftest import VALID_KWARGS
 
 pytestmark = pytest.mark.django_db
@@ -100,6 +102,67 @@ def test_detail_unknown_identifier_returns_404(client, django_user_model):
     client.force_login(user)
 
     response = client.get(reverse("detail", args=["does-not-exist"]))
+
+    assert response.status_code == 404
+
+
+def test_detail_shows_delete_button_and_confirm_modal(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    body = client.get(reverse("detail", args=[VALID_KWARGS["identifier"]])).content.decode()
+
+    # A red Delete button opens the confirmation modal, which POSTs to the
+    # delete endpoint and offers Cancel / Delete controls.
+    delete_url = reverse("delete", args=[VALID_KWARGS["identifier"]])
+    assert 'data-bs-target="#deleteModal"' in body
+    assert 'id="deleteModal"' in body
+    assert 'class="btn btn-danger"' in body
+    assert f'action="{delete_url}"' in body
+
+
+def test_delete_redirects_anonymous_to_login(client, make_presence):
+    make_presence().save()
+    url = reverse("delete", args=[VALID_KWARGS["identifier"]])
+
+    response = client.post(url)
+
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+    # The record survives an unauthenticated attempt.
+    assert Presence.objects.filter(identifier=VALID_KWARGS["identifier"]).exists()
+
+
+def test_delete_get_not_allowed(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    response = client.get(reverse("delete", args=[VALID_KWARGS["identifier"]]))
+
+    # Deletion must not happen on a GET; the record is left intact.
+    assert response.status_code == 405
+    assert Presence.objects.filter(identifier=VALID_KWARGS["identifier"]).exists()
+
+
+def test_delete_removes_record_and_redirects_to_root(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    response = client.post(reverse("delete", args=[VALID_KWARGS["identifier"]]))
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("index")
+    assert not Presence.objects.filter(identifier=VALID_KWARGS["identifier"]).exists()
+
+
+def test_delete_unknown_identifier_returns_404(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    response = client.post(reverse("delete", args=["does-not-exist"]))
 
     assert response.status_code == 404
 

@@ -8,6 +8,7 @@ from presence.forms import BootstrapAuthenticationForm
 urlpatterns = [
     path("", presence_views.index, name="index"),
     path("presence/<str:identifier>/", presence_views.detail, name="detail"),
+    path("presence/<str:identifier>/delete/", presence_views.delete, name="delete"),
     path(
         "login/",
         auth_views.LoginView.as_view(authentication_form=BootstrapAuthenticationForm),
