@@ -117,3 +117,23 @@ def test_logout_logs_out_and_redirects_to_login(client, django_user_model):
     assert reverse("login") in response["Location"]
     # Subsequent access to the gated page bounces back to login.
     assert client.get("/").status_code == 302
+
+
+def test_about_modal_with_version_visible_to_anonymous(client, settings):
+    settings.VERSION = "9.9.9-test"
+
+    # The About control + modal must be reachable without logging in, so check
+    # the (anonymous) login page.
+    body = client.get(reverse("login")).content.decode()
+
+    assert 'data-bs-target="#aboutModal"' in body  # NavBar trigger
+    assert 'id="aboutModal"' in body  # the modal itself
+    assert "9.9.9-test" in body  # the running version
+
+
+def test_version_available_in_template_context(client, settings):
+    settings.VERSION = "1.2.3"
+
+    response = client.get(reverse("login"))
+
+    assert response.context["version"] == "1.2.3"

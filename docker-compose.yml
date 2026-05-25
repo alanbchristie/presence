@@ -1,6 +1,13 @@
 services:
   web:
-    build: .
+    build:
+      context: .
+      args:
+        # Baked into the image as the VERSION env var (shown on the About
+        # modal). CI computes a git tag or short SHA; for a local build set it
+        # with e.g. `VERSION=$(git describe --tags --exact-match 2>/dev/null \
+        # || git rev-parse --short HEAD) docker compose build`. Defaults to dev.
+        VERSION: ${VERSION:-dev}
     image: presence-web
     container_name: presence-web
     ports:
