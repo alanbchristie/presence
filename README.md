@@ -30,10 +30,19 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
 ## Quick start (Docker)
 
 ```
+./docker-up.sh
+```
+
+`docker-up.sh` resolves the application version from git (see
+[Version](#version-about-modal)) and runs `docker compose build` then
+`up -d` with it baked in. Forward any compose options to it, e.g.
+`./docker-up.sh --profile tls`. The plain equivalent (version not baked in) is:
+
+```
 docker compose up -d --build
 ```
 
-That builds the image (Astral's `uv` slim base), runs migrations, attempts to create an `admin/admin` superuser (idempotent), and starts the dev server.
+Either way this builds the image (Astral's `uv` slim base), runs migrations, attempts to create an `admin/admin` superuser (idempotent), and starts the dev server.
 
 - Admin: <http://localhost:8000/admin/> &nbsp; (`admin` / `admin`)
 - API: `curl http://localhost:8000/api/presence/<identifier>/`
@@ -84,6 +93,46 @@ Container-only environment baked into `docker-compose.yml`:
 - `PRESENCE_DB_PATH=/data/db.sqlite3` — moves the SQLite file into the persistent volume.
 - `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]`
 - `DJANGO_SUPERUSER_*` — auto-creates the `admin/admin` superuser on first boot.
+
+## Version (About modal)
+
+The version shown on the **About** modal is `settings.VERSION`, resolved once
+when the process starts (`presence_site/settings.py`):
+
+1. If the `VERSION` environment variable is set and non-blank, that value wins.
+2. Otherwise it is resolved from git, the same way CI computes it:
+   `git describe --tags --exact-match` (an exact tag) falling back to
+   `git rev-parse --short HEAD` (the short commit SHA).
+3. If git is unavailable (no binary, no `.git`, or a shallow clone with no tag)
+   it is `dev`.
+
+So a plain `runserver` from a checkout reports the right version automatically:
+
+| Situation | `VERSION` shown | Example |
+| --- | --- | --- |
+| `VERSION` env var set | that value | whatever you set |
+| unset, HEAD is exactly a tag | the tag | `1.1.0` |
+| unset, HEAD is *not* on a tag | short commit SHA | `8148bd0` |
+| unset, git unavailable | the built-in default | `dev` |
+
+(The exact-match step needs the tag present locally; run `git fetch --tags`
+first, since creating a GitHub release only makes the tag on the remote.)
+
+**CI** (`.github/workflows/build.yml`) computes the value and bakes it into the
+image as a build arg — released images are tagged automatically, nothing to do.
+
+**Docker, built locally** — the image has no `.git`, so the git fallback can't
+run inside the container; `VERSION` must be set at **build** time (not just at
+`up`). `./docker-up.sh` does this for you; the manual equivalent is:
+
+```
+VERSION=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD) \
+  docker compose build
+docker compose up -d
+```
+
+**`runserver` (no Docker)** — nothing required; the version is read from git in
+your working tree. To override it, export `VERSION` before launching.
 
 ## API
 

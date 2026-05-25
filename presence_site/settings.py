@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import subprocess
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -51,10 +52,37 @@ CSRF_TRUSTED_ORIGINS = [
 # secure cookies/redirects misbehave. Caddy sends X-Forwarded-Proto by default.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Application version shown on the About modal. Baked into the container image
-# at build time (Dockerfile ARG/ENV): a git tag if the source is tagged, else
-# the short commit SHA. Falls back to "dev" for un-built local runs.
-VERSION = os.environ.get("VERSION", "dev")
+# Application version shown on the About modal.
+#
+# Built images set the VERSION env var at build time (Dockerfile ARG/ENV), and
+# that always wins. When it is unset/blank — i.e. a local source checkout, e.g.
+# `runserver` — fall back to resolving it from git the same way CI does: an exact
+# tag if HEAD is tagged, else the short commit SHA. If git is unavailable (no
+# binary, no .git, shallow clone with no tag) the value is "dev".
+def _version_from_git() -> str:
+    def _git(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=BASE_DIR,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
+    return (
+        _git("describe", "--tags", "--exact-match")
+        or _git("rev-parse", "--short", "HEAD")
+        or "dev"
+    )
+
+
+VERSION = os.environ.get("VERSION", "").strip() or _version_from_git()
 
 
 # Application definition
