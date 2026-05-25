@@ -122,6 +122,118 @@ def test_detail_shows_delete_button_and_confirm_modal(client, django_user_model,
     assert f'action="{delete_url}"' in body
 
 
+def test_detail_shows_edit_button(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    body = client.get(reverse("detail", args=[VALID_KWARGS["identifier"]])).content.decode()
+
+    # An Edit button links to the edit page for this record.
+    assert f'href="{reverse("edit", args=[VALID_KWARGS["identifier"]])}"' in body
+
+
+#: A valid full POST payload mirroring make_presence()'s absolute-window record.
+EDIT_POST_DATA = {
+    "identifier": "lamp",
+    "name": "Lamp Renamed",
+    "enabled": "on",
+    "timezone": "UTC",
+    "earliest_on": "20:00",
+    "latest_off": "23:00",
+    "earliest_on_offset": "",
+    "latest_off_offset": "",
+    "city": "",
+    "min_on_duration": "01:00:00",
+    "max_on_duration": "01:00:00",
+    "min_off_duration": "01:00:00",
+    "max_off_duration": "01:00:00",
+}
+
+
+def test_edit_redirects_anonymous_to_login(client, make_presence):
+    make_presence().save()
+    response = client.get(reverse("edit", args=[VALID_KWARGS["identifier"]]))
+
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+
+
+def test_edit_unknown_identifier_returns_404(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    response = client.get(reverse("edit", args=["does-not-exist"]))
+
+    assert response.status_code == 404
+
+
+def test_edit_renders_prepopulated_form(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    body = client.get(reverse("edit", args=[VALID_KWARGS["identifier"]])).content.decode()
+
+    # The form is bound to the existing record: its current values are present.
+    assert f'value="{VALID_KWARGS["identifier"]}"' in body
+    assert f'value="{VALID_KWARGS["name"]}"' in body
+
+
+def test_edit_saves_changes_and_redirects_to_detail(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    response = client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), EDIT_POST_DATA)
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("detail", args=[VALID_KWARGS["identifier"]])
+    refreshed = Presence.objects.get(identifier=VALID_KWARGS["identifier"])
+    assert refreshed.name == "Lamp Renamed"
+
+
+def test_edit_does_not_create_a_second_record(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), EDIT_POST_DATA)
+
+    # Editing mutates the existing row rather than inserting a new one.
+    assert Presence.objects.count() == 1
+
+
+def test_edit_can_change_identifier_and_redirects_to_new_detail(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    payload = {**EDIT_POST_DATA, "identifier": "lamp-2"}
+    response = client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), payload)
+
+    assert response.status_code == 302
+    # The redirect targets the record's new identifier, not the old one.
+    assert response["Location"] == reverse("detail", args=["lamp-2"])
+    assert Presence.objects.filter(identifier="lamp-2").exists()
+    assert not Presence.objects.filter(identifier="lamp").exists()
+
+
+def test_edit_invalid_re_renders_with_errors(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    # An invalid identifier (uppercase breaks the DNS-label rule).
+    bad = {**EDIT_POST_DATA, "identifier": "Not Valid"}
+    response = client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), bad)
+
+    assert response.status_code == 200
+    assert response.context["form"].errors
+    # The original record is unchanged.
+    assert Presence.objects.get(identifier="lamp").name == VALID_KWARGS["name"]
+
+
 def test_delete_redirects_anonymous_to_login(client, make_presence):
     make_presence().save()
     url = reverse("delete", args=[VALID_KWARGS["identifier"]])

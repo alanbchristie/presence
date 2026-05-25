@@ -97,6 +97,21 @@ def add(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
+def edit(request, identifier: str):
+    presence = get_object_or_404(Presence, identifier=identifier)
+    if request.method == "POST":
+        form = PresenceForm(request.POST, instance=presence)
+        if form.is_valid():
+            form.save()
+            # The identifier may have changed; redirect to the saved value.
+            return redirect("detail", identifier=form.instance.identifier)
+    else:
+        form = PresenceForm(instance=presence)
+    return render(request, "presence/edit.html", {"form": form, "presence": presence})
+
+
+@login_required
 @require_POST
 def delete(request, identifier: str):
     presence = get_object_or_404(Presence, identifier=identifier)

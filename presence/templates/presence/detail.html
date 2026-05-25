@@ -68,7 +68,10 @@
 
   <div class="d-flex align-items-center justify-content-between mt-4">
     <a href="/api/presence/{{ presence.identifier }}/" class="link-secondary small font-monospace">View as JSON</a>
-    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">Delete</button>
+    <div class="d-flex gap-2">
+      <a href="{% url 'edit' presence.identifier %}" class="btn btn-primary">Edit</a>
+      <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">Delete</button>
+    </div>
   </div>
 
   <!-- Delete confirmation modal -->
