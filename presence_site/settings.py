@@ -51,6 +51,11 @@ CSRF_TRUSTED_ORIGINS = [
 # secure cookies/redirects misbehave. Caddy sends X-Forwarded-Proto by default.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Application version shown on the About modal. Baked into the container image
+# at build time (Dockerfile ARG/ENV): a git tag if the source is tagged, else
+# the short commit SHA. Falls back to "dev" for un-built local runs.
+VERSION = os.environ.get("VERSION", "dev")
+
 
 # Application definition
 
@@ -87,6 +92,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "presence.context_processors.version",
             ],
         },
     },
