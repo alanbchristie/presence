@@ -74,6 +74,32 @@ def test_index_shows_username_and_logout_when_authenticated(client, django_user_
     assert f'action="{reverse("logout")}"' in body
 
 
+def test_navbar_account_menu_when_authenticated(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    body = client.get("/").content.decode()
+
+    # The Account dropdown holds the username and a Logout control...
+    assert 'class="nav-item dropdown"' in body
+    assert ">Account</a>" in body
+    assert "staff" in body
+    assert f'action="{reverse("logout")}"' in body
+    # ...but not a Login link when already authenticated.
+    assert f'href="{reverse("login")}"' not in body
+
+
+def test_navbar_account_menu_when_anonymous(client):
+    body = client.get(reverse("login")).content.decode()
+
+    # The Account dropdown offers a Login link to anonymous visitors...
+    assert 'class="nav-item dropdown"' in body
+    assert ">Account</a>" in body
+    assert f'href="{reverse("login")}"' in body
+    # ...but no logout control until authenticated.
+    assert f'action="{reverse("logout")}"' not in body
+
+
 def test_login_page_shows_navbar_without_logout(client):
     body = client.get(reverse("login")).content.decode()
 

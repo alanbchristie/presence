@@ -23,17 +23,24 @@
             <button type="button" class="btn btn-link nav-link"
                     data-bs-toggle="modal" data-bs-target="#aboutModal">About</button>
           </li>
-          {% if user.is_authenticated %}
-          <li class="nav-item">
-            <span class="navbar-text me-lg-3">{{ user.get_username }}</span>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="accountMenu" role="button"
+               data-bs-toggle="dropdown" aria-expanded="false">Account</a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="accountMenu">
+              {% if user.is_authenticated %}
+              <li><h6 class="dropdown-header">{{ user.get_username }}</h6></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{% url 'logout' %}">
+                  {% csrf_token %}
+                  <button type="submit" class="dropdown-item">Logout</button>
+                </form>
+              </li>
+              {% else %}
+              <li><a class="dropdown-item" href="{% url 'login' %}">Login</a></li>
+              {% endif %}
+            </ul>
           </li>
-          <li class="nav-item">
-            <form method="post" action="{% url 'logout' %}">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-link nav-link">Logout</button>
-            </form>
-          </li>
-          {% endif %}
         </ul>
       </div>
     </div>
