@@ -1,10 +1,10 @@
 """Tests for the root status page and the login/logout flow.
 
 The root page (`presence.views.index`) is login-gated and lists every Presence
-with an on/off LED and an enabled indicator. Login/logout use Django's built-in
-``LoginView`` / ``LogoutView`` wired in ``presence_site.urls``. These tests hit
-the DB and the test client, so they are marked ``django_db`` (unlike the model
-suite, which uses unsaved instances).
+with a Bootstrap pill badge for its on/off state and one for its enabled flag.
+Login/logout use Django's built-in ``LoginView`` / ``LogoutView`` wired in
+``presence_site.urls``. These tests hit the DB and the test client, so they are
+marked ``django_db`` (unlike the model suite, which uses unsaved instances).
 """
 import pytest
 from django.urls import reverse
@@ -30,19 +30,35 @@ def test_index_lists_presence_for_logged_in_user(client, django_user_model, make
     assert response.status_code == 200
     body = response.content.decode()
     assert VALID_KWARGS["name"] in body
-    # The on-state LED carries the `on` class.
-    assert 'class="led on"' in body
+    # Enabled + on → green (Success) state pill and a green Enabled pill.
+    assert "text-bg-success" in body
+    assert "badge rounded-pill" in body
+
+
+def test_index_off_state_uses_danger_badge(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence(enabled=True, current_state="off").save()
+
+    client.force_login(user)
+    body = client.get("/").content.decode()
+
+    # Enabled + off → red (Danger) state pill.
+    assert '<span class="badge rounded-pill text-bg-danger">Off</span>' in body
 
 
 def test_index_marks_disabled_row(client, django_user_model, make_presence):
     user = django_user_model.objects.create_user(username="staff", password="pw")
-    make_presence(enabled=False).save()
+    make_presence(enabled=False, current_state="on").save()
 
     client.force_login(user)
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "disabled" in response.content.decode()
+    body = response.content.decode()
+    # A disabled record's state pill is grey (Secondary) regardless of on/off,
+    # and its enabled pill is red (Danger).
+    assert "text-bg-secondary" in body
+    assert '<span class="badge rounded-pill text-bg-danger">Disabled</span>' in body
 
 
 def test_index_shows_username_and_logout_when_authenticated(client, django_user_model):
@@ -53,7 +69,18 @@ def test_index_shows_username_and_logout_when_authenticated(client, django_user_
 
     body = response.content.decode()
     assert "staff" in body
+    # NavBar brand plus a POST logout control.
+    assert 'class="navbar-brand"' in body
     assert f'action="{reverse("logout")}"' in body
+
+
+def test_login_page_shows_navbar_without_logout(client):
+    body = client.get(reverse("login")).content.decode()
+
+    # The NavBar (and its Presence brand) appears on every page...
+    assert 'class="navbar-brand"' in body
+    # ...but the logout control only shows once authenticated.
+    assert f'action="{reverse("logout")}"' not in body
 
 
 def test_login_page_renders(client):

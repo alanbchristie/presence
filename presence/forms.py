@@ -2,6 +2,7 @@ import re
 from datetime import timedelta
 
 from django import forms
+from django.contrib.auth.forms import AuthenticationForm
 
 _HH_MM_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2})$")
 _HH_MM_SS_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2}):(\d{2})$")
@@ -45,3 +46,17 @@ class SignedDurationFormField(forms.DurationField):
             td = timedelta(hours=int(h), minutes=int(mn))
             return -td if sign_str == "-" else td
         return super().to_python(value)
+
+
+class BootstrapAuthenticationForm(AuthenticationForm):
+    """Login form whose widgets carry Bootstrap's ``form-control`` class.
+
+    Used by the ``LoginView`` (wired in ``presence_site.urls``) so the login
+    template can render fields with ``{{ form.username }}`` and get
+    Bootstrap-styled inputs without per-field markup.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = "form-control"
