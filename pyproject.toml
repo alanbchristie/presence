@@ -21,6 +21,7 @@ dev = [
 ]
 test = [
     "pytest>=8.3",
+    "pytest-cov>=5.0",
     "pytest-django>=4.9",
 ]
 
@@ -28,4 +29,14 @@ test = [
 DJANGO_SETTINGS_MODULE = "presence_site.settings_test"
 python_files = ["test_*.py"]
 testpaths = ["presence"]
-addopts = "-ra"
+addopts = "-ra --cov=presence --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["presence"]
+omit = [
+    "presence/tests/*",
+    "presence/migrations/*",
+]
+
+[tool.coverage.report]
+show_missing = true
