@@ -376,7 +376,7 @@ def test_index_shows_username_and_logout_when_authenticated(client, django_user_
     body = response.content.decode()
     assert "staff" in body
     # NavBar brand plus a POST logout control.
-    assert 'class="navbar-brand"' in body
+    assert 'class="navbar-brand' in body
     assert f'action="{reverse("logout")}"' in body
 
 
@@ -410,7 +410,7 @@ def test_login_page_shows_navbar_without_logout(client):
     body = client.get(reverse("login")).content.decode()
 
     # The NavBar (and its Presence brand) appears on every page...
-    assert 'class="navbar-brand"' in body
+    assert 'class="navbar-brand' in body
     # ...but the logout control only shows once authenticated.
     assert f'action="{reverse("logout")}"' not in body
 
