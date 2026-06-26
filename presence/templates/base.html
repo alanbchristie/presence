@@ -18,12 +18,14 @@
         <span class="navbar-toggler-icon"></span>
       </button>
       <div class="collapse navbar-collapse" id="navMenu">
-        <ul class="navbar-nav ms-auto align-items-lg-center">
-          {% if user.is_authenticated %}
+        {% if user.is_authenticated %}
+        <ul class="navbar-nav me-auto align-items-lg-center">
           <li class="nav-item">
             <a class="nav-link" href="{% url 'access_key_index' %}">Access keys</a>
           </li>
-          {% endif %}
+        </ul>
+        {% endif %}
+        <ul class="navbar-nav ms-auto align-items-lg-center">
           <li class="nav-item">
             <button type="button" class="btn btn-link nav-link"
                     data-bs-toggle="modal" data-bs-target="#aboutModal">About</button>
