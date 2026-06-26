@@ -5,13 +5,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Presence{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'presence/img/person.svg' %}">
   <link href="{% static 'presence/vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
   <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
     <div class="container">
-      <a class="navbar-brand" href="{% url 'index' %}">Presence</a>
+      <a class="navbar-brand d-flex align-items-center gap-2" href="{% url 'index' %}">
+        <img src="{% static 'presence/img/person.svg' %}" alt="" width="22" height="22"
+             class="d-inline-block">
+        Presence
+      </a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
               data-bs-target="#navMenu" aria-controls="navMenu"
               aria-expanded="false" aria-label="Toggle navigation">
