@@ -11,12 +11,17 @@ from datetime import time, timedelta
 
 from django.utils import timezone
 
-from presence.models import Presence
+from presence.models import AccessKey, Presence
 
 now = timezone.now()
 future = now + timedelta(days=1)
 
+# Every presence needs an access key (issue #26); a single shared demo key is
+# enough to satisfy the FK for the screenshots.
+demo_key, _ = AccessKey.objects.get_or_create(name="Demo key")
+
 common = dict(
+    access_key=demo_key,
     min_on_duration=timedelta(hours=1),
     max_on_duration=timedelta(hours=2),
     min_off_duration=timedelta(hours=1),
