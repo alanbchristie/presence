@@ -221,6 +221,61 @@ def test_delete_get_not_allowed(client, django_user_model, access_key):
     assert AccessKey.objects.filter(pk=access_key.pk).exists()
 
 
+def test_regenerate_redirects_anonymous_to_login(client, access_key):
+    response = client.post(reverse("access_key_regenerate", args=[access_key.pk]))
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+
+
+def test_regenerate_changes_value(client, django_user_model, access_key):
+    _login(client, django_user_model)
+    old_value = access_key.value
+
+    response = client.post(reverse("access_key_regenerate", args=[access_key.pk]))
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("access_key_detail", args=[access_key.pk])
+    access_key.refresh_from_db()
+    assert access_key.value
+    assert access_key.value != old_value
+
+
+def test_regenerate_flashes_new_value(client, django_user_model, access_key):
+    _login(client, django_user_model)
+
+    response = client.post(
+        reverse("access_key_regenerate", args=[access_key.pk]), follow=True
+    )
+
+    access_key.refresh_from_db()
+    body = response.content.decode()
+    # The new secret is surfaced once via the success flash.
+    assert access_key.value in body
+    assert "regenerated" in body.lower() or "new value" in body.lower()
+
+
+def test_regenerate_get_not_allowed(client, django_user_model, access_key):
+    _login(client, django_user_model)
+    old_value = access_key.value
+    response = client.get(reverse("access_key_regenerate", args=[access_key.pk]))
+    assert response.status_code == 405
+    access_key.refresh_from_db()
+    assert access_key.value == old_value
+
+
+def test_regenerate_works_while_in_use(client, django_user_model, make_presence, access_key):
+    _login(client, django_user_model)
+    make_presence(access_key=access_key).save()
+    old_value = access_key.value
+
+    response = client.post(reverse("access_key_regenerate", args=[access_key.pk]))
+
+    # In-use keys can be regenerated; only deletion is PROTECT-guarded.
+    assert response.status_code == 302
+    access_key.refresh_from_db()
+    assert access_key.value != old_value
+
+
 # --- presence form: key selection / inline creation (requirement 5) ------
 
 
