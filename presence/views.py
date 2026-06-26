@@ -14,7 +14,7 @@ from django.db.models import ProtectedError
 from . import ratelimit
 from .auth import request_has_valid_key
 from .forms import AccessKeyForm, BootstrapAuthenticationForm, PresenceForm
-from .models import AccessKey, Presence
+from .models import AccessKey, Presence, generate_access_key_value
 
 # Failed-attempt thresholds for the auth endpoints (fixed window, per client
 # IP). The API keys are 256-bit so brute force is already infeasible; these
@@ -207,6 +207,25 @@ def access_key_delete(request, pk: int):
         messages.error(request, f"Cannot delete “{key.name}”: it is still in use.")
         return redirect("access_key_detail", pk=key.pk)
     return redirect("access_key_index")
+
+
+@login_required
+@require_POST
+def access_key_regenerate(request, pk: int):
+    key = get_object_or_404(AccessKey, pk=pk)
+    # Rotate the secret. In-use keys can be regenerated (callers must then
+    # update their X-API-Key); only deletion is PROTECT-guarded.
+    key.value = generate_access_key_value()
+    key.save(update_fields=["value", "updated_at"])
+    # Surface the new secret once to the owner. The detail page already shows
+    # the value in plain text, and a session message is not application
+    # logging, so this does not conflict with the "never log secrets" rule.
+    messages.success(
+        request,
+        f"Regenerated “{key.name}”. New value: {key.value} — "
+        f"update any callers now.",
+    )
+    return redirect("access_key_detail", pk=key.pk)
 
 
 # --- authentication ------------------------------------------------------

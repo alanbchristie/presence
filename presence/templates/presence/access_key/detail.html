@@ -52,6 +52,7 @@
   {% endwith %}
 
   <div class="d-flex align-items-center justify-content-end gap-2 mt-4">
+    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#regenerateModal">Regenerate</button>
     <a href="{% url 'access_key_edit' key.pk %}" class="btn btn-primary">Edit</a>
     <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"
             {% if key.in_use %}disabled{% endif %}>Delete</button>
@@ -59,6 +60,39 @@
   {% if key.in_use %}
   <p class="text-secondary small text-end mt-1">A key in use cannot be deleted.</p>
   {% endif %}
+
+  <!-- Regenerate confirmation modal -->
+  <div class="modal fade" id="regenerateModal" tabindex="-1" aria-labelledby="regenerateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="regenerateModalLabel">Regenerate value for {{ key.name }}?</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">
+            This replaces the secret value for
+            <span class="font-monospace">{{ key.name }}</span>. The old value
+            stops working immediately. You will see the new value once it is
+            generated.
+          </p>
+          {% if key.in_use %}
+          <p class="mb-0 mt-2 text-warning-emphasis">
+            {{ key.presences.count }} presence record(s) use this key and will
+            need their <span class="font-monospace">X-API-Key</span> updated.
+          </p>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <form method="post" action="{% url 'access_key_regenerate' key.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">Regenerate</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Delete confirmation modal -->
   <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">

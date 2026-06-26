@@ -15,6 +15,7 @@ urlpatterns = [
     path("access-key/<int:pk>/", presence_views.access_key_detail, name="access_key_detail"),
     path("access-key/<int:pk>/edit/", presence_views.access_key_edit, name="access_key_edit"),
     path("access-key/<int:pk>/delete/", presence_views.access_key_delete, name="access_key_delete"),
+    path("access-key/<int:pk>/regenerate/", presence_views.access_key_regenerate, name="access_key_regenerate"),
     path("login/", presence_views.ThrottledLoginView.as_view(), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
