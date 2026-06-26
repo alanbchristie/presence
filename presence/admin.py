@@ -4,7 +4,19 @@ from django import forms
 from django.contrib import admin
 
 from .forms import SignedDurationFormField
-from .models import Presence
+from .models import AccessKey, Presence
+
+
+@admin.register(AccessKey)
+class AccessKeyAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "in_use", "created_at")
+    list_display_links = ("id", "name")
+    search_fields = ("name",)
+    readonly_fields = ("value", "created_at", "updated_at")
+
+    @admin.display(boolean=True, description="In use")
+    def in_use(self, obj):
+        return obj.in_use
 
 
 class PresenceAdminForm(forms.ModelForm):
@@ -49,7 +61,7 @@ class PresenceAdmin(admin.ModelAdmin):
         "updated_at_utc",
     )
     fieldsets = (
-        ("Identity", {"fields": ("id", "identifier", "name", "enabled")}),
+        ("Identity", {"fields": ("id", "identifier", "name", "enabled", "access_key")}),
         (
             "Durations",
             {

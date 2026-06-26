@@ -17,13 +17,25 @@ Note: tests live in the `presence/tests/` package (`test_models.py`, pytest +
 pytest-django). Run them with `uv run pytest`; CI runs the same suite in the
 `tests` job of `.github/workflows/build.yml`.
 
+Settings fail closed: `DJANGO_DEBUG` defaults to **off**, and with debug off a
+non-blank `DJANGO_SECRET_KEY` is **required** (the app raises
+`ImproperlyConfigured` otherwise). So bare `manage.py` commands above need
+`DJANGO_DEBUG=true` in the environment for local dev, e.g.
+`DJANGO_DEBUG=true uv run python manage.py runserver` — or export it once for
+the shell. The test suite is unaffected: it uses `presence_site.settings_test`
+(set in `pyproject.toml`), which injects a throwaway key.
+
 Docker (full stack with persisted SQLite):
 
 ```
-docker compose up -d --build                # plain HTTP on :8000
+docker compose up -d --build                # plain HTTP on 127.0.0.1:8000
 docker compose --profile tls up -d          # + Caddy TLS sidecar on :443
 docker compose --profile tls up -d --force-recreate   # pick up changed env vars
 ```
+
+The web port publishes to loopback by default (`PRESENCE_WEB_BIND=127.0.0.1`)
+so the plain-HTTP app is not externally reachable under the TLS profile; set
+`PRESENCE_WEB_BIND=0.0.0.0` only for a deliberately external plain-HTTP host.
 
 ## Architecture
 
@@ -70,12 +82,23 @@ The window helpers (`is_in_window`, `next_window_open`, `window_close_after`,
 
 ### API
 
-`GET /api/presence/<identifier>/` → JSON (`presence/views.py`), wrapped by
-`require_api_key` (`presence/auth.py`). The key is read from the
-`PRESENCE_API_KEY` env var at request time and compared with `hmac.compare_digest`;
-blank/unset means the endpoint is open. Timestamps render in the row's timezone;
-durations as `HH:MM`, signed solar offsets as `±HH:MM` (see
-`forms.SignedDurationFormField`).
+`GET /api/presence/<identifier>/` → JSON (`presence/views.py`). Access is
+protected per-presence: each `Presence` has a required `access_key` FK to an
+`AccessKey` row (named secret, auto-generated `value`), and the view rejects the
+request with `403` unless the caller's `X-API-Key` header matches that key's
+value (`presence/auth.request_has_valid_key`, `hmac.compare_digest`). There is
+no longer a global/open mode. The former `PRESENCE_API_KEY` env var is read only
+once, by migration `0009`, to seed the initial `Default` key. Access keys are
+managed in the web UI (`access-key/*` routes); a key in use by any presence is
+PROTECTed from deletion. Timestamps render in the row's timezone; durations as
+`HH:MM`, signed solar offsets as `±HH:MM` (see `forms.SignedDurationFormField`).
+
+An unknown identifier returns the **same** `403` as a known one with a bad key,
+so callers cannot enumerate which presences exist (do not reintroduce
+`get_object_or_404` here). Both the API and the login view rate-limit failed
+attempts per client IP via `presence/ratelimit.py` (in-process LocMemCache,
+which is coherent only under the single-worker invariant); exceeding the limit
+yields `429`. A successful auth clears the caller's counter.
 
 ### Configuration is environment-driven
 

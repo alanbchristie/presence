@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Access keys &mdash; Presence{% endblock %}
+
+{% block content %}
+  <h1 class="h3">Access keys</h1>
+  <p class="text-secondary small">Named secrets that protect API access to presence records.</p>
+
+  {% if keys %}
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col" class="text-center">Used by</th>
+        <th scope="col" class="text-center">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key in keys %}
+      <tr>
+        <td class="fw-semibold">
+          <a href="{% url 'access_key_detail' key.pk %}" class="link-secondary text-decoration-none">{{ key.name }}</a>
+        </td>
+        <td class="text-center">{{ key.presences.count }}</td>
+        <td class="text-center">
+          {% if key.in_use %}
+            <span class="badge rounded-pill text-bg-success">In use</span>
+          {% else %}
+            <span class="badge rounded-pill text-bg-warning">Unused</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No access keys yet.</p>
+  {% endif %}
+
+  <div class="d-flex justify-content-end">
+    <a href="{% url 'access_key_add' %}" class="btn btn-primary">Add</a>
+  </div>
+{% endblock %}

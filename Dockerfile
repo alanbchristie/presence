@@ -1,4 +1,4 @@
-FROM python:3.14.4-slim-bookworm
+FROM python:3.14.6-slim-bookworm
 
 # Install uv by copying its static binary from Astral's image.
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /uvx /bin/

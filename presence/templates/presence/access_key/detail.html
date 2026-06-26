@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}{{ key.name }} &mdash; Access keys{% endblock %}
+
+{% block content %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'access_key_index' %}" class="link-secondary text-decoration-none">Access keys</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ key.name }}</li>
+    </ol>
+  </nav>
+
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <h1 class="h3 mb-0">{{ key.name }}</h1>
+    {% if key.in_use %}
+      <span class="badge rounded-pill text-bg-success">In use</span>
+    {% else %}
+      <span class="badge rounded-pill text-bg-warning">Unused</span>
+    {% endif %}
+  </div>
+
+  <dl class="row">
+    <dt class="col-sm-3">Value</dt>
+    <dd class="col-sm-9 font-monospace text-break">{{ key.value }}</dd>
+
+    <dt class="col-sm-3">Created</dt>
+    <dd class="col-sm-9">{{ key.created_at }}</dd>
+  </dl>
+
+  <h2 class="h5 mt-4">Presence records using this key</h2>
+  {% with presences=key.presences.all %}
+    {% if presences %}
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Identifier</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in presences %}
+        <tr>
+          <td class="fw-semibold">{{ p.name }}</td>
+          <td><a href="{% url 'detail' p.identifier %}" class="link-secondary text-decoration-none font-monospace">{{ p.identifier }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-secondary">Not used by any presence record.</p>
+    {% endif %}
+  {% endwith %}
+
+  <div class="d-flex align-items-center justify-content-end gap-2 mt-4">
+    <a href="{% url 'access_key_edit' key.pk %}" class="btn btn-primary">Edit</a>
+    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"
+            {% if key.in_use %}disabled{% endif %}>Delete</button>
+  </div>
+  {% if key.in_use %}
+  <p class="text-secondary small text-end mt-1">A key in use cannot be deleted.</p>
+  {% endif %}
+
+  <!-- Delete confirmation modal -->
+  <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="deleteModalLabel">Delete {{ key.name }}?</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">
+            This permanently deletes the access key
+            <span class="font-monospace">{{ key.name }}</span>.
+            This cannot be undone.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <form method="post" action="{% url 'access_key_delete' key.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Delete</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

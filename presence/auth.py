@@ -1,22 +1,18 @@
 import hmac
-import os
-from functools import wraps
 
-from django.http import JsonResponse
+from .models import AccessKey
 
 API_KEY_HEADER = "X-API-Key"
-API_KEY_ENV_VAR = "PRESENCE_API_KEY"
 
 
-def require_api_key(view):
-    @wraps(view)
-    def wrapper(request, *args, **kwargs):
-        configured = os.environ.get(API_KEY_ENV_VAR, "")
-        if not configured:
-            return view(request, *args, **kwargs)
-        provided = request.headers.get(API_KEY_HEADER, "")
-        if not provided or not hmac.compare_digest(configured, provided):
-            return JsonResponse({"error": "forbidden"}, status=403)
-        return view(request, *args, **kwargs)
+def request_has_valid_key(request, access_key: AccessKey) -> bool:
+    """Return True when the request carries the access key's secret value.
 
-    return wrapper
+    The caller's ``X-API-Key`` header is compared with the linked key's value
+    using ``hmac.compare_digest`` (constant-time). A missing or blank header
+    is always rejected — there is no longer an "open" mode.
+    """
+    provided = request.headers.get(API_KEY_HEADER, "")
+    if not provided:
+        return False
+    return hmac.compare_digest(access_key.value, provided)

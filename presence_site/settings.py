@@ -14,21 +14,101 @@ import os
 import subprocess
 from pathlib import Path
 
+from django.contrib.messages import constants as message_constants
+from django.core.exceptions import ImproperlyConfigured
+
+# Map Django's message levels onto Bootstrap's alert suffixes (error→danger)
+# so base.html can build `alert-<tag>` classes directly.
+MESSAGE_TAGS = {message_constants.ERROR: "danger"}
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# --- Secure-by-default configuration helpers -----------------------------
+#
+# These pure helpers read from an explicit environment mapping (not os.environ
+# directly) so they can be unit-tested without process-global state. The values
+# applied below are the production defaults; DEBUG must be opted into and the
+# secret key is mandatory unless DEBUG is on.
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = (
-    os.environ.get("DJANGO_SECRET_KEY")
-    or "django-insecure-!g30%)$1folu5c(=!8fz05tik^3pl+as8xrs28&-j&$5@7owk&"
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+# The throwaway key used only when DEBUG is on. It is prefixed with
+# "django-insecure-" so Django's own deploy check flags it if it ever leaks
+# into a production (DEBUG off) process — which resolve_secret_key forbids.
+DEV_SECRET_KEY = (
+    "django-insecure-!g30%)$1folu5c(=!8fz05tik^3pl+as8xrs28&-j&$5@7owk&"
 )
 
+
+def env_bool(environ: dict, name: str, *, default: bool) -> bool:
+    """Interpret an environment variable as a boolean.
+
+    A missing variable returns ``default``; any present value is truthy only
+    when it is one of ``_TRUE_VALUES`` (case-insensitive, whitespace-trimmed).
+    """
+    raw = environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUE_VALUES
+
+
+def resolve_debug(environ: dict) -> bool:
+    """Return DEBUG, defaulting to OFF so deployments fail safe (#1)."""
+    return env_bool(environ, "DJANGO_DEBUG", default=False)
+
+
+def resolve_secret_key(environ: dict, *, debug: bool) -> str:
+    """Return the secret key, failing closed in production (#2).
+
+    A non-blank ``DJANGO_SECRET_KEY`` always wins. When it is unset/blank the
+    insecure dev key is allowed only with DEBUG on; otherwise we raise rather
+    than silently run with a publicly known key.
+    """
+    key = (environ.get("DJANGO_SECRET_KEY") or "").strip()
+    if key:
+        return key
+    if debug:
+        return DEV_SECRET_KEY
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is off. Generate one "
+        "with: python -c \"from django.core.management.utils import "
+        'get_random_secret_key; print(get_random_secret_key())"'
+    )
+
+
+def security_overrides(debug: bool) -> dict:
+    """HTTPS cookie/redirect/HSTS hardening, applied whenever DEBUG is off (#5).
+
+    Safe behind the TLS-terminating Caddy proxy because SECURE_PROXY_SSL_HEADER
+    (below) makes ``request.is_secure()`` true, so SECURE_SSL_REDIRECT does not
+    loop. In DEBUG (plain-HTTP local dev) everything is relaxed.
+    """
+    if debug:
+        return {
+            "SESSION_COOKIE_SECURE": False,
+            "CSRF_COOKIE_SECURE": False,
+            "SECURE_SSL_REDIRECT": False,
+            "SECURE_HSTS_SECONDS": 0,
+            "SECURE_HSTS_INCLUDE_SUBDOMAINS": False,
+            "SECURE_HSTS_PRELOAD": False,
+        }
+    return {
+        "SESSION_COOKIE_SECURE": True,
+        "CSRF_COOKIE_SECURE": True,
+        "SECURE_SSL_REDIRECT": True,
+        "SECURE_HSTS_SECONDS": 31536000,  # 1 year
+        "SECURE_HSTS_INCLUDE_SUBDOMAINS": True,
+        "SECURE_HSTS_PRELOAD": True,
+    }
+
+
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DJANGO_DEBUG", "True").strip().lower() in {"1", "true", "yes", "on"}
+DEBUG = resolve_debug(os.environ)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = resolve_secret_key(os.environ, debug=DEBUG)
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -51,6 +131,11 @@ CSRF_TRUSTED_ORIGINS = [
 # origin check expects http:// (mismatching the browser's https:// Origin), and
 # secure cookies/redirects misbehave. Caddy sends X-Forwarded-Proto by default.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# HTTPS hardening (secure cookies, SSL redirect, HSTS) — on in production,
+# relaxed under DEBUG. See security_overrides() above for the rationale.
+for _setting_name, _setting_value in security_overrides(DEBUG).items():
+    globals()[_setting_name] = _setting_value
 
 # Application version shown on the About modal.
 #

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Add access key &mdash; Presence{% endblock %}
+
+{% block content %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'access_key_index' %}" class="link-secondary text-decoration-none">Access keys</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Add</li>
+    </ol>
+  </nav>
+
+  <h1 class="h3 mb-3">Add access key</h1>
+  <p class="text-secondary small">The secret value is generated automatically once the key is created.</p>
+
+  <form method="post" action="{% url 'access_key_add' %}" novalidate>
+    {% csrf_token %}
+    {% include "presence/_form_fields.html" %}
+    <div class="d-flex gap-2">
+      <a href="{% url 'access_key_index' %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Add</button>
+    </div>
+  </form>
+{% endblock %}

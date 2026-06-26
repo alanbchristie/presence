@@ -3,8 +3,21 @@ from datetime import timedelta
 
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
+from django.db import IntegrityError, transaction
 
-from .models import Presence
+from .models import AccessKey, Presence
+
+
+def _apply_bootstrap_classes(fields) -> None:
+    """Tag each widget with the Bootstrap class that matches its type."""
+    for field in fields:
+        widget = field.widget
+        if isinstance(widget, forms.CheckboxInput):
+            widget.attrs["class"] = "form-check-input"
+        elif isinstance(widget, forms.Select):
+            widget.attrs["class"] = "form-select"
+        else:
+            widget.attrs["class"] = "form-control"
 
 _HH_MM_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2})$")
 _HH_MM_SS_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2}):(\d{2})$")
@@ -61,10 +74,21 @@ class PresenceForm(forms.ModelForm):
 
     The signed solar offsets reuse :class:`SignedDurationFormField` so they
     render and parse as ±HH:MM, matching the API and admin.
+
+    Every presence needs an access key. The user either selects an existing
+    key or supplies ``new_access_key_name`` to have one created and linked on
+    save (issue #26, requirement 5).
     """
 
     earliest_on_offset = SignedDurationFormField(required=False)
     latest_off_offset = SignedDurationFormField(required=False)
+    # Optional inline creation: when filled, a new key with this name is
+    # created and linked, instead of selecting an existing key.
+    new_access_key_name = forms.CharField(
+        required=False,
+        label="…or create a new access key named",
+        help_text="Leave blank to use the selected key above.",
+    )
 
     class Meta:
         model = Presence
@@ -72,6 +96,7 @@ class PresenceForm(forms.ModelForm):
             "identifier",
             "name",
             "enabled",
+            "access_key",
             "timezone",
             "earliest_on",
             "earliest_on_relative_to_sunset",
@@ -90,14 +115,88 @@ class PresenceForm(forms.ModelForm):
             "latest_off": forms.TimeInput(format="%H:%M", attrs={"type": "time"}),
         }
 
+    # Render the inline-create field directly after the access-key select.
+    field_order = [
+        "identifier",
+        "name",
+        "enabled",
+        "access_key",
+        "new_access_key_name",
+        "timezone",
+        "earliest_on",
+        "earliest_on_relative_to_sunset",
+        "earliest_on_offset",
+        "latest_off",
+        "latest_off_relative_to_sunrise",
+        "latest_off_offset",
+        "city",
+        "min_on_duration",
+        "max_on_duration",
+        "min_off_duration",
+        "max_off_duration",
+    ]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field in self.fields.values():
-            widget = field.widget
-            if isinstance(widget, forms.CheckboxInput):
-                widget.attrs["class"] = "form-check-input"
-            else:
-                widget.attrs["class"] = "form-control"
+        # An existing key OR an inline-created one satisfies the requirement,
+        # so the select itself is not unconditionally required; clean() below
+        # enforces that exactly one path is taken.
+        self.fields["access_key"].required = False
+        _apply_bootstrap_classes(self.fields.values())
+
+    def clean(self):
+        cleaned = super().clean()
+        access_key = cleaned.get("access_key")
+        new_name = (cleaned.get("new_access_key_name") or "").strip()
+
+        if access_key and new_name:
+            self.add_error(
+                "new_access_key_name",
+                "Choose an existing key or name a new one, not both.",
+            )
+            return cleaned
+        if not access_key and not new_name:
+            self.add_error(
+                "access_key",
+                "Select an access key or create a new one.",
+            )
+            return cleaned
+
+        if new_name:
+            # Create the key now (in a transaction) so the instance carries a
+            # valid FK through the model's own non-null validation. Surface a
+            # duplicate name rather than letting it pass silently.
+            try:
+                with transaction.atomic():
+                    access_key = AccessKey.objects.create(name=new_name)
+            except IntegrityError:
+                self.add_error(
+                    "new_access_key_name",
+                    f"An access key named “{new_name}” already exists.",
+                )
+                return cleaned
+            cleaned["access_key"] = access_key
+
+        # Make the FK available to the model instance for _post_clean's
+        # non-null check (which runs after this method).
+        self.instance.access_key = access_key
+        return cleaned
+
+
+class AccessKeyForm(forms.ModelForm):
+    """Create/rename an :class:`~presence.models.AccessKey`.
+
+    Only the human-readable ``name`` is user-editable; the secret ``value`` is
+    auto-generated by the model and never entered or shown in this form.
+    """
+
+    class Meta:
+        model = AccessKey
+        fields = ["name"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_bootstrap_classes(self.fields.values())
 
 
 class BootstrapAuthenticationForm(AuthenticationForm):

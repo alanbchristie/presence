@@ -5,19 +5,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Presence{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'presence/img/person.svg' %}">
   <link href="{% static 'presence/vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
   <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
     <div class="container">
-      <a class="navbar-brand" href="{% url 'index' %}">Presence</a>
+      <a class="navbar-brand d-flex align-items-center gap-2" href="{% url 'index' %}">
+        <img src="{% static 'presence/img/person.svg' %}" alt="" width="22" height="22"
+             class="d-inline-block">
+        Presence
+      </a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
               data-bs-target="#navMenu" aria-controls="navMenu"
               aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
       </button>
       <div class="collapse navbar-collapse" id="navMenu">
+        {% if user.is_authenticated %}
+        <ul class="navbar-nav me-auto align-items-lg-center">
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'access_key_index' %}">Access keys</a>
+          </li>
+        </ul>
+        {% endif %}
         <ul class="navbar-nav ms-auto align-items-lg-center">
           <li class="nav-item">
             <button type="button" class="btn btn-link nav-link"
@@ -47,6 +59,13 @@
   </nav>
 
   <main class="container my-4">
+    {% if messages %}
+      {% for message in messages %}
+      <div class="alert {% if message.tags %}alert-{{ message.tags }}{% else %}alert-info{% endif %}" role="alert">
+        {{ message }}
+      </div>
+      {% endfor %}
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 

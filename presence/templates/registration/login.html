@@ -7,7 +7,11 @@
     <div class="col-sm-9 col-md-6 col-lg-4">
       <h1 class="h3 mb-3">Log in</h1>
 
-      {% if form.errors %}
+      {% if rate_limited %}
+      <div class="alert alert-warning" role="alert">
+        Too many failed login attempts. Please wait a few minutes and try again.
+      </div>
+      {% elif form.errors %}
       <div class="alert alert-danger" role="alert">
         Your username and password didn't match. Please try again.
       </div>
