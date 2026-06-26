@@ -68,7 +68,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
-        run: uv run pytest -q --cov-report=xml
+        run: uv run pytest -q --cov=presence --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

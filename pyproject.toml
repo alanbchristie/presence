@@ -29,7 +29,7 @@ test = [
 DJANGO_SETTINGS_MODULE = "presence_site.settings_test"
 python_files = ["test_*.py"]
 testpaths = ["presence"]
-addopts = "-ra --cov=presence --cov-report=term-missing"
+addopts = "-ra"
 
 [tool.coverage.run]
 source = ["presence"]
