@@ -11,7 +11,7 @@ Create release $ARGUMENTS
 
 ### 1. Check CI for success
 
-The most recent CI action for thge `main` branch must have been successful.
+The most recent CI action for the `main` branch must have been successful.
 If it is not a release must not be created.
 
 ```
@@ -28,7 +28,7 @@ Use the GitHub Releases page to create a new release:
 - The release number should use semantic versioning with a value based
   on the conventional commit comments for all the changes since the last
   release
-- Create a set of resease notes that contain a summary of changes in every commit
+- Create a set of release notes that contain a summary of changes in every commit
   since the prior release
 
 ## Example workflow
@@ -37,7 +37,7 @@ Use the GitHub Releases page to create a new release:
 Me: /release "Bug Fix"
 
 Cluade:
-1. Checking lastets main CI
+1. Checking latest main CI
    CI is successful
 2. Creating release 1.1.0 for "Bug Fix"
    Release created
