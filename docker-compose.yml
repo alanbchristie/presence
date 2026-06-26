@@ -14,13 +14,15 @@ services:
     - "8000:8000"
     environment:
       PRESENCE_DB_PATH: /data/db.sqlite3
-      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,[::1],${PRESENCE_DOMAIN:-}"
       DJANGO_CSRF_TRUSTED_ORIGINS: "https://${PRESENCE_DOMAIN:-localhost},http://${PRESENCE_DOMAIN:-localhost}"
       DJANGO_SUPERUSER_USERNAME: admin
       DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-info@example.com}
-      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin}
+      # No default: a superuser is created only when this is set (entrypoint.sh
+      # skips creation otherwise), so there is no built-in admin/admin login.
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
       # DEPRECATED: read only by migration 0009 to seed the initial access key
       # on upgrade; per-presence access keys protect the API thereafter.
       PRESENCE_API_KEY: ${PRESENCE_API_KEY:-}

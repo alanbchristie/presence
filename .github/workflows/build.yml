@@ -43,7 +43,10 @@ jobs:
 
       - name: Smoke-test the image (django check + version)
         run: |
-          docker run --rm presence-web:ci \
+          # Settings fail closed without a secret key when DEBUG is off (the
+          # default), so supply a throwaway one for this production-mode check.
+          docker run --rm -e DJANGO_SECRET_KEY=ci-smoke-test-not-a-real-secret \
+            presence-web:ci \
             python manage.py check
           baked="$(docker run --rm presence-web:ci printenv VERSION)"
           echo "Image VERSION=$baked"
