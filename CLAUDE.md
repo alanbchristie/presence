@@ -17,6 +17,14 @@ Note: tests live in the `presence/tests/` package (`test_models.py`, pytest +
 pytest-django). Run them with `uv run pytest`; CI runs the same suite in the
 `tests` job of `.github/workflows/build.yml`.
 
+Settings fail closed: `DJANGO_DEBUG` defaults to **off**, and with debug off a
+non-blank `DJANGO_SECRET_KEY` is **required** (the app raises
+`ImproperlyConfigured` otherwise). So bare `manage.py` commands above need
+`DJANGO_DEBUG=true` in the environment for local dev, e.g.
+`DJANGO_DEBUG=true uv run python manage.py runserver` — or export it once for
+the shell. The test suite is unaffected: it uses `presence_site.settings_test`
+(set in `pyproject.toml`), which injects a throwaway key.
+
 Docker (full stack with persisted SQLite):
 
 ```
