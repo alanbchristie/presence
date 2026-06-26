@@ -1,16 +1,18 @@
 """Shared test helpers for the Presence model suite.
 
 `make_presence` builds a *valid, unsaved* Presence in absolute (wall-clock)
-window mode. Each test perturbs a single axis via keyword overrides, so the
-baseline must always pass `clean()` / `full_clean(validate_unique=False)`.
-No factory_boy / freezegun: the model takes explicit `now`/`on_date`, so plain
-instances and hand-built datetimes are sufficient.
+window mode, linked to a persisted :class:`~presence.models.AccessKey` (every
+presence requires one). Each test perturbs a single axis via keyword overrides,
+so the baseline must always pass `clean()` / `full_clean(validate_unique=False)`.
+Because a valid presence now needs a saved access key, the factory depends on
+the ``db`` fixture. No factory_boy / freezegun: the model takes explicit
+`now`/`on_date`, so plain instances and hand-built datetimes are sufficient.
 """
 from datetime import time, timedelta
 
 import pytest
 
-from presence.models import Presence
+from presence.models import AccessKey, Presence
 
 #: A complete, valid set of constructor kwargs (absolute window mode).
 VALID_KWARGS = dict(
@@ -31,11 +33,22 @@ VALID_KWARGS = dict(
 
 
 @pytest.fixture
-def make_presence():
-    """Return a factory: ``make_presence(**overrides) -> Presence`` (unsaved)."""
+def access_key(db) -> AccessKey:
+    """A saved access key for linking presences in tests."""
+    return AccessKey.objects.create(name="Test Key")
+
+
+@pytest.fixture
+def make_presence(access_key):
+    """Return a factory: ``make_presence(**overrides) -> Presence`` (unsaved).
+
+    The instance is linked to the shared :func:`access_key` unless an
+    ``access_key`` override is supplied.
+    """
 
     def _factory(**overrides) -> Presence:
-        return Presence(**{**VALID_KWARGS, **overrides})
+        kwargs = {"access_key": access_key, **VALID_KWARGS, **overrides}
+        return Presence(**kwargs)
 
     return _factory
 

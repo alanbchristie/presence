@@ -19,6 +19,11 @@
       </button>
       <div class="collapse navbar-collapse" id="navMenu">
         <ul class="navbar-nav ms-auto align-items-lg-center">
+          {% if user.is_authenticated %}
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'access_key_index' %}">Access keys</a>
+          </li>
+          {% endif %}
           <li class="nav-item">
             <button type="button" class="btn btn-link nav-link"
                     data-bs-toggle="modal" data-bs-target="#aboutModal">About</button>
@@ -47,6 +52,13 @@
   </nav>
 
   <main class="container my-4">
+    {% if messages %}
+      {% for message in messages %}
+      <div class="alert {% if message.tags %}alert-{{ message.tags }}{% else %}alert-info{% endif %}" role="alert">
+        {{ message }}
+      </div>
+      {% endfor %}
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 

@@ -180,12 +180,13 @@ def test_edit_renders_prepopulated_form(client, django_user_model, make_presence
     assert f'value="{VALID_KWARGS["name"]}"' in body
 
 
-def test_edit_saves_changes_and_redirects_to_detail(client, django_user_model, make_presence):
+def test_edit_saves_changes_and_redirects_to_detail(client, django_user_model, make_presence, access_key):
     user = django_user_model.objects.create_user(username="staff", password="pw")
     make_presence().save()
     client.force_login(user)
 
-    response = client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), EDIT_POST_DATA)
+    payload = {**EDIT_POST_DATA, "access_key": access_key.pk}
+    response = client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), payload)
 
     assert response.status_code == 302
     assert response["Location"] == reverse("detail", args=[VALID_KWARGS["identifier"]])
@@ -193,23 +194,24 @@ def test_edit_saves_changes_and_redirects_to_detail(client, django_user_model, m
     assert refreshed.name == "Lamp Renamed"
 
 
-def test_edit_does_not_create_a_second_record(client, django_user_model, make_presence):
+def test_edit_does_not_create_a_second_record(client, django_user_model, make_presence, access_key):
     user = django_user_model.objects.create_user(username="staff", password="pw")
     make_presence().save()
     client.force_login(user)
 
-    client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), EDIT_POST_DATA)
+    payload = {**EDIT_POST_DATA, "access_key": access_key.pk}
+    client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), payload)
 
     # Editing mutates the existing row rather than inserting a new one.
     assert Presence.objects.count() == 1
 
 
-def test_edit_can_change_identifier_and_redirects_to_new_detail(client, django_user_model, make_presence):
+def test_edit_can_change_identifier_and_redirects_to_new_detail(client, django_user_model, make_presence, access_key):
     user = django_user_model.objects.create_user(username="staff", password="pw")
     make_presence().save()
     client.force_login(user)
 
-    payload = {**EDIT_POST_DATA, "identifier": "lamp-2"}
+    payload = {**EDIT_POST_DATA, "access_key": access_key.pk, "identifier": "lamp-2"}
     response = client.post(reverse("edit", args=[VALID_KWARGS["identifier"]]), payload)
 
     assert response.status_code == 302
@@ -329,16 +331,18 @@ def test_add_renders_form_for_logged_in_user(client, django_user_model):
     assert 'name="current_state"' not in body
 
 
-def test_add_creates_record_and_redirects_to_root(client, django_user_model):
+def test_add_creates_record_and_redirects_to_root(client, django_user_model, access_key):
     user = django_user_model.objects.create_user(username="staff", password="pw")
     client.force_login(user)
 
-    response = client.post(reverse("add"), ADD_POST_DATA)
+    payload = {**ADD_POST_DATA, "access_key": access_key.pk}
+    response = client.post(reverse("add"), payload)
 
     assert response.status_code == 302
     assert response["Location"] == reverse("index")
     created = Presence.objects.get(identifier="desk-lamp")
     assert created.name == "Desk Lamp"
+    assert created.access_key == access_key
 
 
 def test_add_invalid_re_renders_with_errors_and_creates_nothing(client, django_user_model):

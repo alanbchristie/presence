@@ -1,15 +1,18 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .auth import require_api_key
-from .forms import PresenceForm
-from .models import Presence
+from django.db.models import ProtectedError
+
+from .auth import request_has_valid_key
+from .forms import AccessKeyForm, PresenceForm
+from .models import AccessKey, Presence
 
 
 def _seconds(dt: datetime | None, zone: ZoneInfo) -> str | None:
@@ -38,6 +41,7 @@ def _serialize(p: Presence) -> dict:
         "identifier": p.identifier,
         "name": p.name,
         "enabled": p.enabled,
+        "access_key": p.access_key.name,
         "timezone": p.timezone,
         "min_on_duration": _hhmm(p.min_on_duration),
         "max_on_duration": _hhmm(p.max_on_duration),
@@ -58,10 +62,11 @@ def _serialize(p: Presence) -> dict:
     }
 
 
-@require_api_key
 @require_GET
 def presence_detail(request, identifier: str):
     presence = get_object_or_404(Presence, identifier=identifier)
+    if not request_has_valid_key(request, presence.access_key):
+        return JsonResponse({"error": "forbidden"}, status=403)
     return JsonResponse(_serialize(presence))
 
 
@@ -117,3 +122,68 @@ def delete(request, identifier: str):
     presence = get_object_or_404(Presence, identifier=identifier)
     presence.delete()
     return redirect("index")
+
+
+# --- access key management ----------------------------------------------
+
+
+@login_required
+@require_GET
+def access_key_index(request):
+    keys = AccessKey.objects.order_by("name")
+    return render(request, "presence/access_key/index.html", {"keys": keys})
+
+
+@login_required
+@require_GET
+def access_key_detail(request, pk: int):
+    key = get_object_or_404(AccessKey, pk=pk)
+    return render(request, "presence/access_key/detail.html", {"key": key})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def access_key_add(request):
+    if request.method == "POST":
+        form = AccessKeyForm(request.POST)
+        if form.is_valid():
+            key = form.save()
+            return redirect("access_key_detail", pk=key.pk)
+    else:
+        form = AccessKeyForm()
+    return render(request, "presence/access_key/add.html", {"form": form})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def access_key_edit(request, pk: int):
+    key = get_object_or_404(AccessKey, pk=pk)
+    if request.method == "POST":
+        form = AccessKeyForm(request.POST, instance=key)
+        if form.is_valid():
+            form.save()
+            return redirect("access_key_detail", pk=key.pk)
+    else:
+        form = AccessKeyForm(instance=key)
+    return render(request, "presence/access_key/edit.html", {"form": form, "key": key})
+
+
+@login_required
+@require_POST
+def access_key_delete(request, pk: int):
+    key = get_object_or_404(AccessKey, pk=pk)
+    # Requirement #4: a key in use by any presence must not be deleted. The
+    # PROTECT FK enforces this at the DB layer; catch it for a friendly path.
+    if key.in_use:
+        messages.error(
+            request,
+            f"Cannot delete “{key.name}”: it is still used by "
+            f"{key.presences.count()} presence record(s).",
+        )
+        return redirect("access_key_detail", pk=key.pk)
+    try:
+        key.delete()
+    except ProtectedError:
+        messages.error(request, f"Cannot delete “{key.name}”: it is still in use.")
+        return redirect("access_key_detail", pk=key.pk)
+    return redirect("access_key_index")

@@ -21,7 +21,7 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
   - Active "on" periods are force-truncated at the window close
   - Persists `current_state`, `state_since`, and `next_transition_at` so the admin shows live state
 - **JSON REST endpoint** at `GET /api/presence/<identifier>/`:
-  - Optional API key via `X-API-Key` header (configured by `PRESENCE_API_KEY`); if unset the endpoint is open
+  - Required API key via `X-API-Key` header, matched against the presence's linked **access key** (managed in the web UI)
   - Timestamps render in the row's timezone at second precision
   - Durations render as `HH:MM`, solar offsets as `±HH:MM`
 - **Docker Compose** for one-command boot with persisted SQLite volume
@@ -55,7 +55,7 @@ Docker Compose reads a `.env` file in the project root (gitignored). Copy `.env.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PRESENCE_API_KEY` | _(empty)_ | If set, every API call must include `X-API-Key: <value>`. Blank/unset → endpoint is open. |
+| `PRESENCE_API_KEY` | _(empty)_ | **Deprecated.** API access is now protected by per-presence access keys (managed in the web UI). Read only once, by migration `0009`, to seed the initial `Default` access key when upgrading; can be removed afterward. |
 | `PRESENCE_SERVER` | `runserver` | HTTP server: `runserver` (dev) or `gunicorn` (recommended for non-dev). See [HTTP server](#http-server). |
 | `DJANGO_DEBUG` | `True` | `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`. |
 | `DJANGO_SECRET_KEY` | _(insecure dev key)_ | Set this for any non-dev deployment. Generate with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`. |
@@ -136,7 +136,7 @@ your working tree. To override it, export `VERSION` before launching.
 
 ## API
 
-`GET /api/presence/<identifier>/` returns a JSON object describing the row, where `<identifier>` is the row's RFC 1123-style identifier (e.g. `living-room`, `sequence-a`). Example:
+`GET /api/presence/<identifier>/` returns a JSON object describing the row, where `<identifier>` is the row's RFC 1123-style identifier (e.g. `living-room`, `sequence-a`). The `X-API-Key` header must carry the value of the access key linked to that presence (create and manage keys on the **Access keys** page). Example:
 
 ```
 $ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/living-room/ | jq .
@@ -145,6 +145,7 @@ $ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/living-ro
   "identifier": "living-room",
   "name": "Living room",
   "enabled": true,
+  "access_key": "Living room key",
   "timezone": "Europe/London",
   "min_on_duration": "00:15",
   "max_on_duration": "01:30",
@@ -183,7 +184,7 @@ Content-Type: application/json
 
 HTTPie is in the `dev` dependency group; install it locally with `uv sync --group dev` (or run on demand with `uvx httpie`).
 
-- Missing or wrong `X-API-Key` (when configured) → `403`.
+- Missing or wrong `X-API-Key` (it must match the presence's linked access key) → `403`.
 - Unknown identifier → `404`.
 
 ## Development (without Docker)
@@ -213,8 +214,8 @@ presence_site/          # Django project (settings, urls)
 presence/               # The app
     models.py           # Presence model + window helpers (absolute and solar)
     runner.py           # Background thread that flips state
-    views.py            # JSON API
-    auth.py             # X-API-Key decorator
+    views.py            # JSON API + presence/access-key web UI
+    auth.py             # X-API-Key check against a presence's access key
     forms.py            # SignedDurationFormField (±HH:MM rendering)
     admin.py            # ModelAdmin with row-tz formatted columns
     migrations/

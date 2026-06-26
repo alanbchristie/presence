@@ -14,6 +14,12 @@ import os
 import subprocess
 from pathlib import Path
 
+from django.contrib.messages import constants as message_constants
+
+# Map Django's message levels onto Bootstrap's alert suffixes (error→danger)
+# so base.html can build `alert-<tag>` classes directly.
+MESSAGE_TAGS = {message_constants.ERROR: "danger"}
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 

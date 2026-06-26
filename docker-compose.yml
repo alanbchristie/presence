@@ -21,6 +21,8 @@ services:
       DJANGO_SUPERUSER_USERNAME: admin
       DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-info@example.com}
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin}
+      # DEPRECATED: read only by migration 0009 to seed the initial access key
+      # on upgrade; per-presence access keys protect the API thereafter.
       PRESENCE_API_KEY: ${PRESENCE_API_KEY:-}
       PRESENCE_SERVER: ${PRESENCE_SERVER:-runserver}
     volumes:

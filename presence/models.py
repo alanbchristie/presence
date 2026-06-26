@@ -1,4 +1,5 @@
 import re
+import secrets
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -41,6 +42,60 @@ def validate_astral_city(value: str) -> None:
         )
 
 
+def generate_access_key_value() -> str:
+    """Return a fresh, URL-safe secret for an :class:`AccessKey`.
+
+    Used as the field default so keys created via the form, admin, or shell
+    get a strong value without the user supplying one.
+    """
+    return secrets.token_urlsafe(32)
+
+
+class AccessKey(models.Model):
+    """A named secret that protects API access to one or more presences.
+
+    Replaces the former global ``PRESENCE_API_KEY`` env var: each presence
+    links to an access key, and the API validates the caller's ``X-API-Key``
+    header against the linked key's :attr:`value`.
+    """
+
+    name = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Human-readable label for this key (e.g. 'Living room').",
+    )
+    value = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_access_key_value,
+        help_text=(
+            "The secret sent in the X-API-Key header. Auto-generated; treat "
+            "it as a password and do not share it in clear text."
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this key was created. Stored and shown in UTC.",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When this key was last saved. Stored and shown in UTC.",
+    )
+
+    class Meta:
+        verbose_name = "Access key"
+        verbose_name_plural = "Access keys"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def in_use(self) -> bool:
+        """True when at least one presence links to this key."""
+        return self.presences.exists()
+
+
 class Presence(models.Model):
     class State(models.TextChoices):
         ON = "on", "on"
@@ -68,6 +123,15 @@ class Presence(models.Model):
         help_text=(
             "Uncheck to pause this row without deleting it. The runner thread "
             "skips disabled rows and stops mutating their state."
+        ),
+    )
+    access_key = models.ForeignKey(
+        AccessKey,
+        on_delete=models.PROTECT,
+        related_name="presences",
+        help_text=(
+            "Access key whose value the API requires in the X-API-Key header "
+            "to read this presence. A key cannot be deleted while in use."
         ),
     )
 
