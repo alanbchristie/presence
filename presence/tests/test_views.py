@@ -439,6 +439,32 @@ def test_login_with_invalid_credentials_re_renders_with_error(client, django_use
     assert response.context["form"].errors
 
 
+def test_login_throttled_after_repeated_failures(client, django_user_model):
+    # #7: repeated failed logins from one client are blocked, even once the
+    # correct password is offered.
+    from presence.views import LOGIN_FAIL_LIMIT
+
+    django_user_model.objects.create_user(username="staff", password="pw")
+    for _ in range(LOGIN_FAIL_LIMIT):
+        response = client.post(
+            reverse("login"), {"username": "staff", "password": "wrong"}
+        )
+        assert response.status_code == 200
+    blocked = client.post(reverse("login"), {"username": "staff", "password": "pw"})
+    assert blocked.status_code == 429
+
+
+def test_login_success_resets_throttle(client, django_user_model):
+    from presence.views import LOGIN_FAIL_LIMIT
+
+    django_user_model.objects.create_user(username="staff", password="pw")
+    for _ in range(LOGIN_FAIL_LIMIT - 1):
+        client.post(reverse("login"), {"username": "staff", "password": "wrong"})
+    # A successful login before the limit clears the counter.
+    response = client.post(reverse("login"), {"username": "staff", "password": "pw"})
+    assert response.status_code == 302
+
+
 def test_logout_logs_out_and_redirects_to_login(client, django_user_model):
     user = django_user_model.objects.create_user(username="staff", password="pw")
     client.force_login(user)

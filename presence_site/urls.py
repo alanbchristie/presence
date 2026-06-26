@@ -3,7 +3,6 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
 from presence import views as presence_views
-from presence.forms import BootstrapAuthenticationForm
 
 urlpatterns = [
     path("", presence_views.index, name="index"),
@@ -16,11 +15,7 @@ urlpatterns = [
     path("access-key/<int:pk>/", presence_views.access_key_detail, name="access_key_detail"),
     path("access-key/<int:pk>/edit/", presence_views.access_key_edit, name="access_key_edit"),
     path("access-key/<int:pk>/delete/", presence_views.access_key_delete, name="access_key_delete"),
-    path(
-        "login/",
-        auth_views.LoginView.as_view(authentication_form=BootstrapAuthenticationForm),
-        name="login",
-    ),
+    path("login/", presence_views.ThrottledLoginView.as_view(), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
     path("api/", include("presence.urls")),

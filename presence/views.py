@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import LoginView
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -10,9 +11,18 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from django.db.models import ProtectedError
 
+from . import ratelimit
 from .auth import request_has_valid_key
-from .forms import AccessKeyForm, PresenceForm
+from .forms import AccessKeyForm, BootstrapAuthenticationForm, PresenceForm
 from .models import AccessKey, Presence
+
+# Failed-attempt thresholds for the auth endpoints (fixed window, per client
+# IP). The API keys are 256-bit so brute force is already infeasible; these
+# bound abuse and noise. Login is the realistic target, so it is stricter.
+API_FAIL_LIMIT = 20
+API_FAIL_WINDOW = 300  # seconds
+LOGIN_FAIL_LIMIT = 5
+LOGIN_FAIL_WINDOW = 300  # seconds
 
 
 def _seconds(dt: datetime | None, zone: ZoneInfo) -> str | None:
@@ -64,9 +74,19 @@ def _serialize(p: Presence) -> dict:
 
 @require_GET
 def presence_detail(request, identifier: str):
-    presence = get_object_or_404(Presence, identifier=identifier)
-    if not request_has_valid_key(request, presence.access_key):
+    ip = ratelimit.client_ip(request)
+    if ratelimit.is_blocked("api", ip, limit=API_FAIL_LIMIT):
+        return JsonResponse({"error": "too many requests"}, status=429)
+
+    # Resolve without get_object_or_404 so an unknown identifier and a bad key
+    # produce the same 403 — callers must not be able to tell which presences
+    # exist (#6).
+    presence = Presence.objects.filter(identifier=identifier).first()
+    if presence is None or not request_has_valid_key(request, presence.access_key):
+        ratelimit.record_failure("api", ip, window_seconds=API_FAIL_WINDOW)
         return JsonResponse({"error": "forbidden"}, status=403)
+
+    ratelimit.clear("api", ip)
     return JsonResponse(_serialize(presence))
 
 
@@ -187,3 +207,37 @@ def access_key_delete(request, pk: int):
         messages.error(request, f"Cannot delete “{key.name}”: it is still in use.")
         return redirect("access_key_detail", pk=key.pk)
     return redirect("access_key_index")
+
+
+# --- authentication ------------------------------------------------------
+
+
+class ThrottledLoginView(LoginView):
+    """Login view that rate-limits failed attempts per client IP (#7).
+
+    Once a client exceeds ``LOGIN_FAIL_LIMIT`` failures within the window, every
+    POST is refused with HTTP 429 — including one carrying the correct password
+    — until the window lapses. A successful login clears the counter. GET (just
+    rendering the form) is never throttled.
+    """
+
+    authentication_form = BootstrapAuthenticationForm
+
+    def post(self, request, *args, **kwargs):
+        ip = ratelimit.client_ip(request)
+        if ratelimit.is_blocked("login", ip, limit=LOGIN_FAIL_LIMIT):
+            context = self.get_context_data(form=self.get_form(), rate_limited=True)
+            return self.render_to_response(context, status=429)
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        ratelimit.clear("login", ratelimit.client_ip(self.request))
+        return super().form_valid(form)
+
+    def form_invalid(self, form):
+        ratelimit.record_failure(
+            "login",
+            ratelimit.client_ip(self.request),
+            window_seconds=LOGIN_FAIL_WINDOW,
+        )
+        return super().form_invalid(form)

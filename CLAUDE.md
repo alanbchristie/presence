@@ -28,10 +28,14 @@ the shell. The test suite is unaffected: it uses `presence_site.settings_test`
 Docker (full stack with persisted SQLite):
 
 ```
-docker compose up -d --build                # plain HTTP on :8000
+docker compose up -d --build                # plain HTTP on 127.0.0.1:8000
 docker compose --profile tls up -d          # + Caddy TLS sidecar on :443
 docker compose --profile tls up -d --force-recreate   # pick up changed env vars
 ```
+
+The web port publishes to loopback by default (`PRESENCE_WEB_BIND=127.0.0.1`)
+so the plain-HTTP app is not externally reachable under the TLS profile; set
+`PRESENCE_WEB_BIND=0.0.0.0` only for a deliberately external plain-HTTP host.
 
 ## Architecture
 
@@ -88,6 +92,13 @@ once, by migration `0009`, to seed the initial `Default` key. Access keys are
 managed in the web UI (`access-key/*` routes); a key in use by any presence is
 PROTECTed from deletion. Timestamps render in the row's timezone; durations as
 `HH:MM`, signed solar offsets as `±HH:MM` (see `forms.SignedDurationFormField`).
+
+An unknown identifier returns the **same** `403` as a known one with a bad key,
+so callers cannot enumerate which presences exist (do not reintroduce
+`get_object_or_404` here). Both the API and the login view rate-limit failed
+attempts per client IP via `presence/ratelimit.py` (in-process LocMemCache,
+which is coherent only under the single-worker invariant); exceeding the limit
+yields `429`. A successful auth clears the caller's counter.
 
 ### Configuration is environment-driven
 

@@ -84,6 +84,36 @@ def test_api_accepts_matching_key(client, make_presence, access_key):
     assert access_key.value not in response.content.decode()
 
 
+def test_api_unknown_identifier_returns_403_not_404(client, db):
+    # #6: an unknown identifier must respond identically to a known one with a
+    # bad key, so unauthenticated callers cannot enumerate which exist.
+    response = client.get(_api_url("does-not-exist"))
+    assert response.status_code == 403
+
+
+def test_api_throttles_repeated_failures(client, make_presence):
+    # #7: brute-force attempts are blocked after a threshold of failures.
+    from presence.views import API_FAIL_LIMIT
+
+    make_presence().save()
+    for _ in range(API_FAIL_LIMIT):
+        assert client.get(_api_url(), HTTP_X_API_KEY="nope").status_code == 403
+    # The next attempt is throttled regardless of the (still-wrong) key.
+    assert client.get(_api_url(), HTTP_X_API_KEY="nope").status_code == 429
+
+
+def test_api_success_resets_throttle(client, make_presence, access_key):
+    from presence.views import API_FAIL_LIMIT
+
+    make_presence(access_key=access_key).save()
+    for _ in range(API_FAIL_LIMIT - 1):
+        client.get(_api_url(), HTTP_X_API_KEY="nope")
+    # A valid request clears the failure counter...
+    assert client.get(_api_url(), HTTP_X_API_KEY=access_key.value).status_code == 200
+    # ...so the next bad key is a plain 403, not an immediate 429.
+    assert client.get(_api_url(), HTTP_X_API_KEY="nope").status_code == 403
+
+
 # --- access-key views ----------------------------------------------------
 
 

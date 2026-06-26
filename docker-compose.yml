@@ -11,7 +11,12 @@ services:
     image: presence-web
     container_name: presence-web
     ports:
-    - "8000:8000"
+    # Bind the app's port to loopback by default so that, under the TLS profile,
+    # the plain-HTTP app is not reachable from outside the host (Caddy still
+    # reaches it over the Docker network, unaffected by this host binding).
+    # For a plain-HTTP deployment that must accept external traffic, set
+    # PRESENCE_WEB_BIND=0.0.0.0 — but prefer the TLS profile instead.
+    - "${PRESENCE_WEB_BIND:-127.0.0.1}:8000:8000"
     environment:
       PRESENCE_DB_PATH: /data/db.sqlite3
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}

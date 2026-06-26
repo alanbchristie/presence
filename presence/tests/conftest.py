@@ -54,6 +54,21 @@ def make_presence(access_key):
 
 
 @pytest.fixture(autouse=True)
+def _clear_rate_limit_cache():
+    """Reset the local-memory cache between tests.
+
+    The rate limiter (``presence.ratelimit``) records failures in Django's
+    default LocMemCache, which persists for the whole test process. Clear it
+    around every test so throttle counters never leak across cases.
+    """
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _plain_static_storage(settings):
     """Render `{% static %}` without a collectstatic manifest.
 
