@@ -12,7 +12,7 @@ class AccessKeyAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "in_use", "created_at")
     list_display_links = ("id", "name")
     search_fields = ("name",)
-    readonly_fields = ("value", "created_at", "updated_at")
+    readonly_fields = ("value", "created_at", "updated_at", "last_generated_at")
 
     @admin.display(boolean=True, description="In use")
     def in_use(self, obj):

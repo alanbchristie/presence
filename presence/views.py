@@ -216,7 +216,8 @@ def access_key_regenerate(request, pk: int):
     # Rotate the secret. In-use keys can be regenerated (callers must then
     # update their X-API-Key); only deletion is PROTECT-guarded.
     key.value = generate_access_key_value()
-    key.save(update_fields=["value", "updated_at"])
+    key.last_generated_at = timezone.now()
+    key.save(update_fields=["value", "last_generated_at", "updated_at"])
     # Surface the new secret once to the owner. The detail page already shows
     # the value in plain text, and a session message is not application
     # logging, so this does not conflict with the "never log secrets" rule.
