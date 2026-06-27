@@ -81,6 +81,15 @@ class AccessKey(models.Model):
         auto_now=True,
         help_text="When this key was last saved. Stored and shown in UTC.",
     )
+    last_generated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "When this key's value was last regenerated. Null for keys that "
+            "have never been regenerated. Stored and shown in UTC."
+        ),
+    )
 
     class Meta:
         verbose_name = "Access key"

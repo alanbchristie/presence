@@ -8,6 +8,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.urls import reverse
+from django.utils import timezone
 
 from presence.models import AccessKey, Presence
 
@@ -252,6 +253,22 @@ def test_regenerate_flashes_new_value(client, django_user_model, access_key):
     # The new secret is surfaced once via the success flash.
     assert access_key.value in body
     assert "regenerated" in body.lower() or "new value" in body.lower()
+
+
+def test_last_generated_at_defaults_to_null(access_key):
+    # A freshly created key has never been regenerated.
+    assert access_key.last_generated_at is None
+
+
+def test_regenerate_records_last_generated_at(client, django_user_model, access_key):
+    _login(client, django_user_model)
+    before = timezone.now()
+
+    client.post(reverse("access_key_regenerate", args=[access_key.pk]))
+
+    access_key.refresh_from_db()
+    assert access_key.last_generated_at is not None
+    assert access_key.last_generated_at >= before
 
 
 def test_regenerate_get_not_allowed(client, django_user_model, access_key):
