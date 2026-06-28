@@ -8,6 +8,7 @@ urlpatterns = [
     path("", presence_views.index, name="index"),
     path("presence/add/", presence_views.add, name="add"),
     path("presence/<str:identifier>/", presence_views.detail, name="detail"),
+    path("presence/<str:identifier>/json/", presence_views.detail_json, name="detail_json"),
     path("presence/<str:identifier>/edit/", presence_views.edit, name="edit"),
     path("presence/<str:identifier>/duplicate/", presence_views.duplicate, name="duplicate"),
     path("presence/<str:identifier>/delete/", presence_views.delete, name="delete"),

@@ -150,6 +150,20 @@ def detail(request, identifier: str):
 
 
 @login_required
+@require_GET
+def detail_json(request, identifier: str):
+    """Session-authenticated, human-readable view of the API payload.
+
+    The public API (`presence_detail`) requires a matching X-API-Key header,
+    so a browser link to it always 403s. This view serves the *same*
+    serialized data to a logged-in operator for inspection, gated by the
+    normal login rather than the per-presence access key.
+    """
+    presence = get_object_or_404(Presence, identifier=identifier)
+    return JsonResponse(_serialize(presence), json_dumps_params={"indent": 2})
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def add(request):
     if request.method == "POST":
