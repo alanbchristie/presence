@@ -100,9 +100,8 @@ class Location(models.Model):
 class AccessKey(models.Model):
     """A named secret that protects API access to one or more presences.
 
-    Replaces the former global ``PRESENCE_API_KEY`` env var: each presence
-    links to an access key, and the API validates the caller's ``X-API-Key``
-    header against the linked key's :attr:`value`.
+    Each presence links to an access key, and the API validates the caller's
+    ``X-API-Key`` header against the linked key's :attr:`value`.
     """
 
     name = models.CharField(

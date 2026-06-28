@@ -1,4 +1,3 @@
-import os
 import secrets
 
 import django.db.models.deletion
@@ -10,10 +9,8 @@ import presence.models
 def seed_access_keys(apps, schema_editor):
     """Create an initial access key and link every existing presence to it.
 
-    Seeds the key's value from the legacy ``PRESENCE_API_KEY`` env var so
-    existing clients keep working; if that var is blank/unset the endpoint
-    used to be open, so we mint a fresh random value instead (the endpoint is
-    now always protected). Skipped entirely when there are no presences.
+    Mints a fresh random value for the key (the API endpoint is always
+    protected now). Skipped entirely when there are no presences.
 
     Uses ``secrets`` directly rather than the model helper: historical models
     exposed via ``apps.get_model`` carry no methods.
@@ -22,7 +19,7 @@ def seed_access_keys(apps, schema_editor):
     if not Presence.objects.exists():
         return
     AccessKey = apps.get_model("presence", "AccessKey")
-    value = os.environ.get("PRESENCE_API_KEY", "") or secrets.token_urlsafe(32)
+    value = secrets.token_urlsafe(32)
     key = AccessKey.objects.create(name="Default", value=value)
     Presence.objects.filter(access_key__isnull=True).update(access_key=key)
 
