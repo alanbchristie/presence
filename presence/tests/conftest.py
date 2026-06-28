@@ -15,6 +15,8 @@ import pytest
 from presence.models import AccessKey, Location, Presence
 
 #: A complete, valid set of constructor kwargs (absolute window mode).
+#: ``timezone`` and ``city`` now live on the Location (issue #43); the
+#: ``make_presence`` factory routes those overrides onto the linked location.
 VALID_KWARGS = dict(
     identifier="lamp",
     name="Lamp",
@@ -25,10 +27,8 @@ VALID_KWARGS = dict(
     max_off_duration=timedelta(hours=1),
     earliest_on=time(20, 0),
     latest_off=time(23, 0),
-    timezone="UTC",
     earliest_on_relative_to_sunset=False,
     latest_off_relative_to_sunrise=False,
-    city="",
 )
 
 
@@ -43,9 +43,9 @@ def location(db) -> Location:
     """A saved location for linking presences in tests.
 
     Distinct from the migration-seeded ``Default`` location so tests can tell
-    the two apart.
+    the two apart. Carries the timezone/city the presence windows use.
     """
-    return Location.objects.create(name="Test Location")
+    return Location.objects.create(name="Test Location", timezone="UTC")
 
 
 @pytest.fixture
@@ -54,13 +54,21 @@ def make_presence(access_key, location):
 
     The instance is linked to the shared :func:`access_key` and
     :func:`location` unless an ``access_key`` / ``location`` override is
-    supplied.
+    supplied. ``timezone`` and ``city`` now live on the Location (issue #43),
+    so those overrides are applied to the linked location (which is saved) and
+    not passed to the presence.
     """
 
     def _factory(**overrides) -> Presence:
+        used_location = overrides.pop("location", location)
+        if "timezone" in overrides:
+            used_location.timezone = overrides.pop("timezone")
+        if "city" in overrides:
+            used_location.city = overrides.pop("city")
+        used_location.save()
         kwargs = {
             "access_key": access_key,
-            "location": location,
+            "location": used_location,
             **VALID_KWARGS,
             **overrides,
         }

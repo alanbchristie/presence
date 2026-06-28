@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from astral.geocoder import database, lookup
 from astral.sun import sun
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 
@@ -70,6 +70,25 @@ class Location(models.Model):
         max_length=64,
         unique=True,
         help_text="Human-readable label for this location (e.g. 'Office').",
+    )
+    timezone = models.CharField(
+        max_length=64,
+        default="UTC",
+        validators=[validate_iana_timezone],
+        help_text=(
+            "IANA timezone name (e.g. Europe/London) that the wall-clock "
+            "window times of presences at this location are interpreted in."
+        ),
+    )
+    city = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_astral_city],
+        help_text=(
+            "Name of a city from astral's built-in database. Required when a "
+            "presence at this location uses a solar-relative window edge."
+        ),
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -242,8 +261,13 @@ class Presence(models.Model):
     )
     timezone = models.CharField(
         max_length=64,
-        validators=[validate_iana_timezone],
-        help_text="IANA timezone name (e.g. Europe/London) that the wall-clock window times are interpreted in.",
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Deprecated (issue #43): the timezone now lives on the presence's "
+            "Location and this field is no longer used."
+        ),
     )
 
     earliest_on_relative_to_sunset = models.BooleanField(
@@ -270,9 +294,10 @@ class Presence(models.Model):
         max_length=64,
         blank=True,
         default="",
-        validators=[validate_astral_city],
-        help_text="Name of a city from astral's built-in database. "
-                  "Required when either window edge is solar-relative.",
+        help_text=(
+            "Deprecated (issue #43): the city now lives on the presence's "
+            "Location and this field is no longer used."
+        ),
     )
 
     current_state = models.CharField(
@@ -355,14 +380,16 @@ class Presence(models.Model):
                     "Required unless 'latest off relative to sunrise' is checked."
                 )
 
-        # If any solar edge, city is required
-        if (
-            self.earliest_on_relative_to_sunset
-            or self.latest_off_relative_to_sunrise
-        ) and not self.city:
-            errors["city"] = (
-                "Required when either window edge is solar-relative."
-            )
+        # If any solar edge, the presence's location must name a city (the city
+        # moved to Location in issue #43). Reported as a non-field error since
+        # the city is not edited on the presence form.
+        if self.earliest_on_relative_to_sunset or self.latest_off_relative_to_sunrise:
+            location = self.location if self.location_id else None
+            if location is None or not location.city:
+                errors[NON_FIELD_ERRORS] = (
+                    "The presence's location needs a city when either window "
+                    "edge is solar-relative."
+                )
 
         # absolute-vs-absolute zero-length check (still meaningful when both edges absolute)
         if (
@@ -382,11 +409,12 @@ class Presence(models.Model):
     # --- helpers ---------------------------------------------------------
 
     def _zone(self) -> ZoneInfo:
-        return ZoneInfo(self.timezone)
+        # Timezone and city live on the presence's Location (issue #43).
+        return ZoneInfo(self.location.timezone)
 
     def _solar(self, on_date: date) -> dict:
-        location = lookup(self.city, database())
-        return sun(location.observer, date=on_date, tzinfo=self._zone())
+        city = lookup(self.location.city, database())
+        return sun(city.observer, date=on_date, tzinfo=self._zone())
 
     def _window_open_for_date(self, on_date: date) -> datetime:
         zone = self._zone()

@@ -21,9 +21,9 @@ class AccessKeyAdmin(admin.ModelAdmin):
 
 @admin.register(Location)
 class LocationAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "in_use", "created_at")
+    list_display = ("id", "name", "timezone", "city", "in_use", "created_at")
     list_display_links = ("id", "name")
-    search_fields = ("name",)
+    search_fields = ("name", "timezone", "city")
     readonly_fields = ("created_at", "updated_at")
 
     @admin.display(boolean=True, description="In use")
@@ -43,7 +43,9 @@ class PresenceAdminForm(forms.ModelForm):
 
     class Meta:
         model = Presence
-        fields = "__all__"
+        # timezone/city are deprecated (moved to Location, issue #43); keep them
+        # out of the admin form.
+        exclude = ("timezone", "city")
 
 
 @admin.register(Presence)
@@ -90,8 +92,6 @@ class PresenceAdmin(admin.ModelAdmin):
             "Window",
             {
                 "fields": (
-                    "timezone",
-                    "city",
                     "earliest_on",
                     "earliest_on_relative_to_sunset",
                     "earliest_on_offset",
@@ -129,7 +129,7 @@ class PresenceAdmin(admin.ModelAdmin):
         if dt is None:
             return "—"
         try:
-            zone = ZoneInfo(obj.timezone)
+            zone = ZoneInfo(obj.location.timezone)
         except Exception:
             return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
         local = dt.astimezone(zone)

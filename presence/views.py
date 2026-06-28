@@ -57,14 +57,16 @@ def _hhmm_signed(td: timedelta) -> str:
 
 def _serialize(p: Presence) -> dict:
     now = timezone.now()
-    zone = ZoneInfo(p.timezone)
+    # Timezone and city live on the presence's Location (issue #43); the API
+    # continues to expose them.
+    zone = ZoneInfo(p.location.timezone)
     return {
         "id": p.pk,
         "identifier": p.identifier,
         "name": p.name,
         "enabled": p.enabled,
         "access_key": p.access_key.name,
-        "timezone": p.timezone,
+        "timezone": p.location.timezone,
         "min_on_duration": _hhmm(p.min_on_duration),
         "max_on_duration": _hhmm(p.max_on_duration),
         "min_off_duration": _hhmm(p.min_off_duration),
@@ -75,7 +77,7 @@ def _serialize(p: Presence) -> dict:
         "earliest_on_offset": _hhmm_signed(p.earliest_on_offset) if p.earliest_on_offset is not None else None,
         "latest_off_relative_to_sunrise": p.latest_off_relative_to_sunrise,
         "latest_off_offset": _hhmm_signed(p.latest_off_offset) if p.latest_off_offset is not None else None,
-        "city": p.city or None,
+        "city": p.location.city or None,
         "state": p.current_state,
         "state_since": _seconds(p.state_since, zone),
         "next_transition_at": _seconds(p.next_transition_at, zone),

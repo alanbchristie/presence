@@ -98,14 +98,12 @@ class PresenceForm(forms.ModelForm):
             "enabled",
             "location",
             "access_key",
-            "timezone",
             "earliest_on",
             "earliest_on_relative_to_sunset",
             "earliest_on_offset",
             "latest_off",
             "latest_off_relative_to_sunrise",
             "latest_off_offset",
-            "city",
             "min_on_duration",
             "max_on_duration",
             "min_off_duration",
@@ -124,14 +122,12 @@ class PresenceForm(forms.ModelForm):
         "location",
         "access_key",
         "new_access_key_name",
-        "timezone",
         "earliest_on",
         "earliest_on_relative_to_sunset",
         "earliest_on_offset",
         "latest_off",
         "latest_off_relative_to_sunrise",
         "latest_off_offset",
-        "city",
         "min_on_duration",
         "max_on_duration",
         "min_off_duration",
@@ -219,15 +215,16 @@ class AccessKeyForm(forms.ModelForm):
 
 
 class LocationForm(forms.ModelForm):
-    """Create/rename a :class:`~presence.models.Location`.
+    """Create/edit a :class:`~presence.models.Location`.
 
-    Only the human-readable ``name`` is user-editable; the view guards against
-    renaming the protected ``Default`` location.
+    Carries the ``timezone`` and ``city`` that the location's presences use for
+    their window times (issue #43). The view guards against renaming the
+    protected ``Default`` location.
     """
 
     class Meta:
         model = Location
-        fields = ["name"]
+        fields = ["name", "timezone", "city"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -47,7 +47,6 @@ def test_presence_duplicate_get_prefills_from_source(
     initial = response.context["form"].initial
     # Config fields are copied so the user can tweak rather than retype.
     assert initial["name"] == VALID_KWARGS["name"]
-    assert initial["timezone"] == VALID_KWARGS["timezone"]
     assert initial["location"] == location.pk
     # The unique identifier is left blank: the user must supply a fresh one.
     assert not initial.get("identifier")
@@ -67,7 +66,6 @@ def test_presence_duplicate_post_creates_new_row(
         "enabled": "on",
         "location": location.pk,
         "access_key": access_key.pk,
-        "timezone": "UTC",
         "earliest_on": "20:00",
         "latest_off": "23:00",
         "min_on_duration": "01:00:00",
@@ -85,7 +83,9 @@ def test_presence_duplicate_post_creates_new_row(
     assert copy.pk != source.pk
     assert copy.name == "Lamp copy"
     assert copy.access_key == access_key
-    assert copy.timezone == "UTC"
+    # Timezone now comes from the linked location (issue #43).
+    assert copy.location == location
+    assert copy.location.timezone == "UTC"
     assert Presence.objects.filter(identifier=VALID_KWARGS["identifier"]).exists()
 
 
@@ -129,7 +129,7 @@ def test_location_duplicate_post_creates_new_row(
 
     response = client.post(
         reverse("location_duplicate", args=[location.pk]),
-        {"name": "Test Location copy"},
+        {"name": "Test Location copy", "timezone": "UTC"},
     )
 
     assert response.status_code == 302
