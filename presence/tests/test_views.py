@@ -74,6 +74,19 @@ def test_index_identifier_links_to_detail_page(client, django_user_model, make_p
     assert f'href="{reverse("detail", args=[VALID_KWARGS["identifier"]])}"' in body
 
 
+def test_index_location_links_to_location_detail_page(
+    client, django_user_model, make_presence, location
+):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+
+    client.force_login(user)
+    body = client.get("/").content.decode()
+
+    # The location name links to its own detail page.
+    assert f'href="{reverse("location_detail", args=[location.pk])}"' in body
+
+
 def test_detail_redirects_anonymous_to_login(client, make_presence):
     make_presence().save()
     url = reverse("detail", args=[VALID_KWARGS["identifier"]])

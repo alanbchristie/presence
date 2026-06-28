@@ -52,7 +52,7 @@
         </td>
         <td class="fw-semibold">{{ p.name }}</td>
         <td><a href="{% url 'detail' p.identifier %}" class="link-secondary text-decoration-none font-monospace">{{ p.identifier }}</a></td>
-        <td>{{ p.location.name }}</td>
+        <td><a href="{% url 'location_detail' p.location.pk %}" class="link-secondary text-decoration-none">{{ p.location.name }}</a></td>
         <td class="text-center">
           {% if p.enabled %}
             <span class="badge rounded-pill text-bg-success">Enabled</span>
