@@ -13,8 +13,19 @@ from django.db.models import ProtectedError
 
 from . import ratelimit
 from .auth import request_has_valid_key
-from .forms import AccessKeyForm, BootstrapAuthenticationForm, PresenceForm
-from .models import AccessKey, Presence, generate_access_key_value
+from .forms import (
+    AccessKeyForm,
+    BootstrapAuthenticationForm,
+    LocationForm,
+    PresenceForm,
+)
+from .models import (
+    DEFAULT_LOCATION_NAME,
+    AccessKey,
+    Location,
+    Presence,
+    generate_access_key_value,
+)
 
 # Failed-attempt thresholds for the auth endpoints (fixed window, per client
 # IP). The API keys are 256-bit so brute force is already infeasible; these
@@ -90,11 +101,38 @@ def presence_detail(request, identifier: str):
     return JsonResponse(_serialize(presence))
 
 
+def _selected_location_id(request) -> int | None:
+    """Return a valid ``?location=<pk>`` filter, or None to show everything.
+
+    A missing, non-integer, or unknown id falls back to None (no filtering)
+    rather than erroring or showing an empty list.
+    """
+    raw = request.GET.get("location")
+    if not raw:
+        return None
+    try:
+        pk = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return pk if Location.objects.filter(pk=pk).exists() else None
+
+
 @login_required
 @require_GET
 def index(request):
     presences = Presence.objects.order_by("name")
-    return render(request, "presence/index.html", {"presences": presences})
+    selected = _selected_location_id(request)
+    if selected is not None:
+        presences = presences.filter(location_id=selected)
+    return render(
+        request,
+        "presence/index.html",
+        {
+            "presences": presences,
+            "locations": Location.objects.all(),
+            "selected_location": selected,
+        },
+    )
 
 
 @login_required
@@ -151,7 +189,21 @@ def delete(request, identifier: str):
 @require_GET
 def access_key_index(request):
     keys = AccessKey.objects.order_by("name")
-    return render(request, "presence/access_key/index.html", {"keys": keys})
+    selected = _selected_location_id(request)
+    if selected is not None:
+        # A key's location(s) are derived through the presences that use it, so
+        # narrow to keys used by any presence at the selected location. distinct
+        # collapses a key shared by several presences there into one row.
+        keys = keys.filter(presences__location_id=selected).distinct()
+    return render(
+        request,
+        "presence/access_key/index.html",
+        {
+            "keys": keys,
+            "locations": Location.objects.all(),
+            "selected_location": selected,
+        },
+    )
 
 
 @login_required
@@ -227,6 +279,100 @@ def access_key_regenerate(request, pk: int):
         f"update any callers now.",
     )
     return redirect("access_key_detail", pk=key.pk)
+
+
+# --- location management -------------------------------------------------
+
+
+@login_required
+@require_GET
+def location_index(request):
+    locations = Location.objects.order_by("name")
+    return render(request, "presence/location/index.html", {"locations": locations})
+
+
+@login_required
+@require_GET
+def location_detail(request, pk: int):
+    location = get_object_or_404(Location, pk=pk)
+    # A location's access keys are derived through the presences at it.
+    access_keys = (
+        AccessKey.objects.filter(presences__location=location).distinct().order_by("name")
+    )
+    return render(
+        request,
+        "presence/location/detail.html",
+        {"location": location, "access_keys": access_keys},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def location_add(request):
+    if request.method == "POST":
+        form = LocationForm(request.POST)
+        if form.is_valid():
+            location = form.save()
+            return redirect("location_detail", pk=location.pk)
+    else:
+        form = LocationForm()
+    return render(request, "presence/location/add.html", {"form": form})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def location_edit(request, pk: int):
+    location = get_object_or_404(Location, pk=pk)
+    if request.method == "POST":
+        # The Default location must stay findable by name, so it is not
+        # renameable (it is also not deletable).
+        if location.is_default:
+            messages.error(
+                request,
+                f"The “{DEFAULT_LOCATION_NAME}” location cannot be renamed.",
+            )
+            return redirect("location_detail", pk=location.pk)
+        form = LocationForm(request.POST, instance=location)
+        if form.is_valid():
+            form.save()
+            return redirect("location_detail", pk=location.pk)
+    else:
+        form = LocationForm(instance=location)
+    return render(
+        request,
+        "presence/location/edit.html",
+        {"form": form, "location": location},
+    )
+
+
+@login_required
+@require_POST
+def location_delete(request, pk: int):
+    location = get_object_or_404(Location, pk=pk)
+    # The Default location is permanent (issue #33).
+    if location.is_default:
+        messages.error(
+            request,
+            f"The “{DEFAULT_LOCATION_NAME}” location cannot be deleted.",
+        )
+        return redirect("location_detail", pk=location.pk)
+    # A location in use by any presence must not be deleted. The PROTECT FK
+    # enforces this at the DB layer; catch it for a friendly path.
+    if location.in_use:
+        messages.error(
+            request,
+            f"Cannot delete “{location.name}”: it is still used by "
+            f"{location.presences.count()} presence record(s).",
+        )
+        return redirect("location_detail", pk=location.pk)
+    try:
+        location.delete()
+    except ProtectedError:
+        messages.error(
+            request, f"Cannot delete “{location.name}”: it is still in use."
+        )
+        return redirect("location_detail", pk=location.pk)
+    return redirect("location_index")
 
 
 # --- authentication ------------------------------------------------------

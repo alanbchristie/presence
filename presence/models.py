@@ -51,6 +51,52 @@ def generate_access_key_value() -> str:
     return secrets.token_urlsafe(32)
 
 
+#: Name of the location seeded by migration 0011. It is the initial value of
+#: every new presence and is protected from deletion and renaming so it always
+#: exists and stays findable. The protected row is identified by this name,
+#: matching the ``Default`` convention already used for the seeded access key.
+DEFAULT_LOCATION_NAME = "Default"
+
+
+class Location(models.Model):
+    """A named place that one or more presences belong to.
+
+    A presence belongs to exactly one location; a location can hold many
+    presences. An access key's location(s) are derived through the presences
+    that use it, so :class:`Location` carries no direct link to access keys.
+    """
+
+    name = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Human-readable label for this location (e.g. 'Office').",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this location was created. Stored and shown in UTC.",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When this location was last saved. Stored and shown in UTC.",
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def in_use(self) -> bool:
+        """True when at least one presence belongs to this location."""
+        return self.presences.exists()
+
+    @property
+    def is_default(self) -> bool:
+        """True for the protected, migration-seeded ``Default`` location."""
+        return self.name == DEFAULT_LOCATION_NAME
+
+
 class AccessKey(models.Model):
     """A named secret that protects API access to one or more presences.
 
@@ -141,6 +187,15 @@ class Presence(models.Model):
         help_text=(
             "Access key whose value the API requires in the X-API-Key header "
             "to read this presence. A key cannot be deleted while in use."
+        ),
+    )
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.PROTECT,
+        related_name="presences",
+        help_text=(
+            "Location this presence belongs to. A location cannot be deleted "
+            "while presences reference it."
         ),
     )
 

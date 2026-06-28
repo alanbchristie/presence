@@ -4,7 +4,7 @@ from django import forms
 from django.contrib import admin
 
 from .forms import SignedDurationFormField
-from .models import AccessKey, Presence
+from .models import AccessKey, Location, Presence
 
 
 @admin.register(AccessKey)
@@ -13,6 +13,18 @@ class AccessKeyAdmin(admin.ModelAdmin):
     list_display_links = ("id", "name")
     search_fields = ("name",)
     readonly_fields = ("value", "created_at", "updated_at", "last_generated_at")
+
+    @admin.display(boolean=True, description="In use")
+    def in_use(self, obj):
+        return obj.in_use
+
+
+@admin.register(Location)
+class LocationAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "in_use", "created_at")
+    list_display_links = ("id", "name")
+    search_fields = ("name",)
+    readonly_fields = ("created_at", "updated_at")
 
     @admin.display(boolean=True, description="In use")
     def in_use(self, obj):
@@ -47,9 +59,10 @@ class PresenceAdmin(admin.ModelAdmin):
         "next_transition_at_local",
         "earliest_on",
         "latest_off",
+        "location",
     )
     list_display_links = ("id", "identifier", "name")
-    list_filter = ("enabled", "current_state")
+    list_filter = ("enabled", "current_state", "location")
     search_fields = ("identifier", "name", "id")
     prepopulated_fields = {"identifier": ("name",)}
     readonly_fields = (
@@ -61,7 +74,7 @@ class PresenceAdmin(admin.ModelAdmin):
         "updated_at_utc",
     )
     fieldsets = (
-        ("Identity", {"fields": ("id", "identifier", "name", "enabled", "access_key")}),
+        ("Identity", {"fields": ("id", "identifier", "name", "enabled", "location", "access_key")}),
         (
             "Durations",
             {

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Locations &mdash; Presence{% endblock %}
+
+{% block content %}
+  <h1 class="h3">Locations</h1>
+  <p class="text-secondary small">Named places that presence records belong to.</p>
+
+  {% if locations %}
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col" class="text-center">Presences</th>
+        <th scope="col" class="text-center">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for location in locations %}
+      <tr>
+        <td class="fw-semibold">
+          <a href="{% url 'location_detail' location.pk %}" class="link-secondary text-decoration-none">{{ location.name }}</a>
+        </td>
+        <td class="text-center">{{ location.presences.count }}</td>
+        <td class="text-center">
+          {% if location.is_default %}
+            <span class="badge rounded-pill text-bg-primary">Default</span>
+          {% elif location.in_use %}
+            <span class="badge rounded-pill text-bg-success">In use</span>
+          {% else %}
+            <span class="badge rounded-pill text-bg-warning">Unused</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No locations yet.</p>
+  {% endif %}
+
+  <div class="d-flex justify-content-end">
+    <a href="{% url 'location_add' %}" class="btn btn-primary">Add</a>
+  </div>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}{{ location.name }} &mdash; Locations{% endblock %}
+
+{% block content %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'location_index' %}" class="link-secondary text-decoration-none">Locations</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ location.name }}</li>
+    </ol>
+  </nav>
+
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <h1 class="h3 mb-0">{{ location.name }}</h1>
+    {% if location.is_default %}
+      <span class="badge rounded-pill text-bg-primary">Default</span>
+    {% elif location.in_use %}
+      <span class="badge rounded-pill text-bg-success">In use</span>
+    {% else %}
+      <span class="badge rounded-pill text-bg-warning">Unused</span>
+    {% endif %}
+  </div>
+
+  <dl class="row">
+    <dt class="col-sm-3">Created</dt>
+    <dd class="col-sm-9">{{ location.created_at }}</dd>
+  </dl>
+
+  <h2 class="h5 mt-4">Presence records at this location</h2>
+  {% with presences=location.presences.all %}
+    {% if presences %}
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Identifier</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in presences %}
+        <tr>
+          <td class="fw-semibold">{{ p.name }}</td>
+          <td><a href="{% url 'detail' p.identifier %}" class="link-secondary text-decoration-none font-monospace">{{ p.identifier }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-secondary">No presence records at this location.</p>
+    {% endif %}
+  {% endwith %}
+
+  <h2 class="h5 mt-4">Access keys used at this location</h2>
+  {% if access_keys %}
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key in access_keys %}
+      <tr>
+        <td class="fw-semibold">
+          <a href="{% url 'access_key_detail' key.pk %}" class="link-secondary text-decoration-none">{{ key.name }}</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-secondary">No access keys used at this location.</p>
+  {% endif %}
+
+  <div class="d-flex align-items-center justify-content-end gap-2 mt-4">
+    {% if not location.is_default %}
+    <a href="{% url 'location_edit' location.pk %}" class="btn btn-primary">Edit</a>
+    {% endif %}
+    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"
+            {% if location.in_use or location.is_default %}disabled{% endif %}>Delete</button>
+  </div>
+  {% if location.is_default %}
+  <p class="text-secondary small text-end mt-1">The Default location cannot be renamed or deleted.</p>
+  {% elif location.in_use %}
+  <p class="text-secondary small text-end mt-1">A location in use cannot be deleted.</p>
+  {% endif %}
+
+  <!-- Delete confirmation modal -->
+  <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="deleteModalLabel">Delete {{ location.name }}?</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">
+            This permanently deletes the location
+            <span class="font-monospace">{{ location.name }}</span>.
+            This cannot be undone.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <form method="post" action="{% url 'location_delete' location.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Delete</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

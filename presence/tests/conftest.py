@@ -12,7 +12,7 @@ from datetime import time, timedelta
 
 import pytest
 
-from presence.models import AccessKey, Presence
+from presence.models import AccessKey, Location, Presence
 
 #: A complete, valid set of constructor kwargs (absolute window mode).
 VALID_KWARGS = dict(
@@ -39,15 +39,31 @@ def access_key(db) -> AccessKey:
 
 
 @pytest.fixture
-def make_presence(access_key):
+def location(db) -> Location:
+    """A saved location for linking presences in tests.
+
+    Distinct from the migration-seeded ``Default`` location so tests can tell
+    the two apart.
+    """
+    return Location.objects.create(name="Test Location")
+
+
+@pytest.fixture
+def make_presence(access_key, location):
     """Return a factory: ``make_presence(**overrides) -> Presence`` (unsaved).
 
-    The instance is linked to the shared :func:`access_key` unless an
-    ``access_key`` override is supplied.
+    The instance is linked to the shared :func:`access_key` and
+    :func:`location` unless an ``access_key`` / ``location`` override is
+    supplied.
     """
 
     def _factory(**overrides) -> Presence:
-        kwargs = {"access_key": access_key, **VALID_KWARGS, **overrides}
+        kwargs = {
+            "access_key": access_key,
+            "location": location,
+            **VALID_KWARGS,
+            **overrides,
+        }
         return Presence(**kwargs)
 
     return _factory

@@ -5,7 +5,7 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.db import IntegrityError, transaction
 
-from .models import AccessKey, Presence
+from .models import DEFAULT_LOCATION_NAME, AccessKey, Location, Presence
 
 
 def _apply_bootstrap_classes(fields) -> None:
@@ -96,6 +96,7 @@ class PresenceForm(forms.ModelForm):
             "identifier",
             "name",
             "enabled",
+            "location",
             "access_key",
             "timezone",
             "earliest_on",
@@ -120,6 +121,7 @@ class PresenceForm(forms.ModelForm):
         "identifier",
         "name",
         "enabled",
+        "location",
         "access_key",
         "new_access_key_name",
         "timezone",
@@ -142,10 +144,27 @@ class PresenceForm(forms.ModelForm):
         # so the select itself is not unconditionally required; clean() below
         # enforces that exactly one path is taken.
         self.fields["access_key"].required = False
+        # Every presence needs a location, but the Default location stands in
+        # when none is chosen (issue #33). Pre-select it on new rows and let
+        # clean() fall back to it, so the select itself is not required.
+        self.fields["location"].required = False
+        if self.instance.pk is None:
+            self.fields["location"].initial = (
+                Location.objects.filter(name=DEFAULT_LOCATION_NAME).first()
+            )
         _apply_bootstrap_classes(self.fields.values())
 
     def clean(self):
         cleaned = super().clean()
+
+        # Fall back to the Default location when none was chosen, then make the
+        # FK available to the model instance for _post_clean's non-null check.
+        location = cleaned.get("location")
+        if location is None:
+            location = Location.objects.filter(name=DEFAULT_LOCATION_NAME).first()
+            cleaned["location"] = location
+        self.instance.location = location
+
         access_key = cleaned.get("access_key")
         new_name = (cleaned.get("new_access_key_name") or "").strip()
 
@@ -192,6 +211,22 @@ class AccessKeyForm(forms.ModelForm):
 
     class Meta:
         model = AccessKey
+        fields = ["name"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_bootstrap_classes(self.fields.values())
+
+
+class LocationForm(forms.ModelForm):
+    """Create/rename a :class:`~presence.models.Location`.
+
+    Only the human-readable ``name`` is user-editable; the view guards against
+    renaming the protected ``Default`` location.
+    """
+
+    class Meta:
+        model = Location
         fields = ["name"]
 
     def __init__(self, *args, **kwargs):
