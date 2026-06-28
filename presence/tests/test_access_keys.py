@@ -1,8 +1,8 @@
 """Tests for access keys (issue #26).
 
 Covers the :class:`~presence.models.AccessKey` model, the per-presence API
-auth that replaced the global ``PRESENCE_API_KEY`` env var, the access-key CRUD
-views, and the inline key-creation path on the presence form.
+auth, the access-key CRUD views, and the inline key-creation path on the
+presence form.
 """
 import pytest
 from django.db import IntegrityError, transaction

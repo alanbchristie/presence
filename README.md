@@ -56,7 +56,6 @@ Docker Compose reads a `.env` file in the project root (gitignored). Copy `.env.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PRESENCE_API_KEY` | _(empty)_ | **Deprecated.** API access is now protected by per-presence access keys (managed in the web UI). Read only once, by migration `0009`, to seed the initial `Default` access key when upgrading; can be removed afterward. |
 | `PRESENCE_SERVER` | `runserver` | HTTP server: `runserver` (dev) or `gunicorn` (recommended for non-dev). See [HTTP server](#http-server). |
 | `DJANGO_DEBUG` | `True` | `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`. |
 | `DJANGO_SECRET_KEY` | _(insecure dev key)_ | Set this for any non-dev deployment. Generate with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`. |

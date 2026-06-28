@@ -34,9 +34,6 @@ services:
       # No default: a superuser is created only when this is set (entrypoint.sh
       # skips creation otherwise), so there is no built-in admin/admin login.
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
-      # DEPRECATED: read only by migration 0009 to seed the initial access key
-      # on upgrade; per-presence access keys protect the API thereafter.
-      PRESENCE_API_KEY: ${PRESENCE_API_KEY:-}
       PRESENCE_SERVER: ${PRESENCE_SERVER:-runserver}
     volumes:
     - presence-data:/data
