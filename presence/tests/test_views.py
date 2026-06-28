@@ -344,6 +344,18 @@ def test_add_renders_form_for_logged_in_user(client, django_user_model):
     assert 'name="current_state"' not in body
 
 
+def test_add_renders_help_text_as_hover_tooltip(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    body = client.get(reverse("add")).content.decode()
+
+    # Help text is surfaced via a Bootstrap tooltip rather than an always-on
+    # form-text block, so the forms read more compactly.
+    assert 'data-bs-toggle="tooltip"' in body
+    assert 'class="form-text"' not in body
+
+
 def test_add_creates_record_and_redirects_to_root(client, django_user_model, access_key):
     user = django_user_model.objects.create_user(username="staff", password="pw")
     client.force_login(user)

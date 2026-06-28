@@ -98,5 +98,10 @@
   </div>
 
   <script src="{% static 'presence/vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+  <script>
+    // Enable Bootstrap tooltips wherever they are opted in (e.g. form help icons).
+    document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      .forEach(function (el) { new bootstrap.Tooltip(el); });
+  </script>
 </body>
 </html>
