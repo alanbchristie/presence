@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Duplicate {{ source.name }} &mdash; Presence{% endblock %}
+
+{% block content %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'index' %}" class="link-secondary text-decoration-none">Presence</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'detail' source.identifier %}" class="link-secondary text-decoration-none">{{ source.identifier }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Duplicate</li>
+    </ol>
+  </nav>
+
+  <h1 class="h3 mb-1">Duplicate {{ source.name }}</h1>
+  <p class="text-secondary">
+    Creating a copy of <span class="font-monospace">{{ source.identifier }}</span>.
+    Give it a new identifier and name, and choose its location.
+  </p>
+
+  <form method="post" action="{% url 'duplicate' source.identifier %}" novalidate>
+    {% csrf_token %}
+    {% include "presence/_form_fields.html" %}
+    <div class="d-flex gap-2">
+      <a href="{% url 'detail' source.identifier %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Create copy</button>
+    </div>
+  </form>
+{% endblock %}

@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
+from django.forms import model_to_dict
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -175,6 +176,36 @@ def edit(request, identifier: str):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
+def duplicate(request, identifier: str):
+    """Create a new presence pre-filled from an existing one (issue #40).
+
+    GET renders the create form populated with the source's configuration so
+    the user only has to give the copy a new identifier and name (and may pick
+    a different location). The unique ``identifier`` is intentionally left
+    blank. POST goes through the ordinary ``PresenceForm`` create path, so the
+    source row is never touched.
+    """
+    source = get_object_or_404(Presence, identifier=identifier)
+    if request.method == "POST":
+        form = PresenceForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect("detail", identifier=form.instance.identifier)
+    else:
+        initial = model_to_dict(source, fields=PresenceForm.Meta.fields)
+        # The identifier is unique, so it must not carry over: force the user
+        # to supply a fresh one for the copy.
+        initial["identifier"] = ""
+        form = PresenceForm(initial=initial)
+    return render(
+        request,
+        "presence/duplicate.html",
+        {"form": form, "source": source},
+    )
+
+
+@login_required
 @require_POST
 def delete(request, identifier: str):
     presence = get_object_or_404(Presence, identifier=identifier)
@@ -342,6 +373,31 @@ def location_edit(request, pk: int):
         request,
         "presence/location/edit.html",
         {"form": form, "location": location},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def location_duplicate(request, pk: int):
+    """Create a new location seeded from an existing one (issue #40).
+
+    A location only carries a unique ``name``, so duplication just renders the
+    create form with the name left blank for the user to supply a new one; the
+    source row is never modified.
+    """
+    source = get_object_or_404(Location, pk=pk)
+    if request.method == "POST":
+        form = LocationForm(request.POST)
+        if form.is_valid():
+            location = form.save()
+            return redirect("location_detail", pk=location.pk)
+    else:
+        # The name is unique; leave it blank for the user to supply a new one.
+        form = LocationForm(initial={"name": ""})
+    return render(
+        request,
+        "presence/location/duplicate.html",
+        {"form": form, "source": source},
     )
 
 

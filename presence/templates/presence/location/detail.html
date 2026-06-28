@@ -73,6 +73,7 @@
   {% endif %}
 
   <div class="d-flex align-items-center justify-content-end gap-2 mt-4">
+    <a href="{% url 'location_duplicate' location.pk %}" class="btn btn-outline-primary">Duplicate</a>
     {% if not location.is_default %}
     <a href="{% url 'location_edit' location.pk %}" class="btn btn-primary">Edit</a>
     {% endif %}
