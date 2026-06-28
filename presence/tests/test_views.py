@@ -146,6 +146,57 @@ def test_detail_shows_edit_button(client, django_user_model, make_presence):
     assert f'href="{reverse("edit", args=[VALID_KWARGS["identifier"]])}"' in body
 
 
+def test_detail_links_to_session_json_view_not_api(client, django_user_model, make_presence):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence().save()
+    client.force_login(user)
+
+    body = client.get(reverse("detail", args=[VALID_KWARGS["identifier"]])).content.decode()
+
+    # "View as JSON" points at the login-gated JSON view, not the key-protected
+    # API endpoint (which a browser link can never authenticate to).
+    json_url = reverse("detail_json", args=[VALID_KWARGS["identifier"]])
+    assert f'href="{json_url}"' in body
+    assert f'href="/api/presence/{VALID_KWARGS["identifier"]}/"' not in body
+
+
+def test_detail_json_redirects_anonymous_to_login(client, make_presence):
+    make_presence().save()
+    url = reverse("detail_json", args=[VALID_KWARGS["identifier"]])
+
+    response = client.get(url)
+
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+
+
+def test_detail_json_returns_serialized_payload_for_logged_in_user(
+    client, django_user_model, make_presence
+):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    make_presence(current_state="on").save()
+    client.force_login(user)
+
+    response = client.get(reverse("detail_json", args=[VALID_KWARGS["identifier"]]))
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "application/json"
+    payload = response.json()
+    # Same shape the public API serves (see presence.views._serialize).
+    assert payload["identifier"] == VALID_KWARGS["identifier"]
+    assert payload["name"] == VALID_KWARGS["name"]
+    assert payload["state"] == "on"
+
+
+def test_detail_json_unknown_identifier_returns_404(client, django_user_model):
+    user = django_user_model.objects.create_user(username="staff", password="pw")
+    client.force_login(user)
+
+    response = client.get(reverse("detail_json", args=["does-not-exist"]))
+
+    assert response.status_code == 404
+
+
 #: A valid full POST payload mirroring make_presence()'s absolute-window record.
 EDIT_POST_DATA = {
     "identifier": "lamp",
