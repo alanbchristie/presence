@@ -206,6 +206,20 @@ def test_presence_index_ignores_bad_location_param(client, django_user_model, ma
     assert "Desk Lamp" in body
 
 
+def test_presence_index_filter_auto_submits_without_a_button(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    make_presence().save()
+
+    body = client.get(reverse("index")).content.decode()
+
+    # The dropdown applies the filter on change; there is no separate
+    # submit button.
+    assert 'onchange="this.form.submit()"' in body
+    assert ">Filter</button>" not in body
+
+
 def test_access_key_index_filters_by_location(client, django_user_model, make_presence):
     _login(client, django_user_model)
     office = Location.objects.create(name="Office")
@@ -238,6 +252,20 @@ def test_access_key_index_dedupes_keys_used_across_presences(
 
     # A key used by two presences at the same location is listed once.
     assert body.count(reverse("access_key_detail", args=[shared.pk])) == 1
+
+
+def test_access_key_index_filter_auto_submits_without_a_button(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    make_presence().save()
+
+    body = client.get(reverse("access_key_index")).content.decode()
+
+    # The dropdown applies the filter on change; there is no separate
+    # submit button.
+    assert 'onchange="this.form.submit()"' in body
+    assert ">Filter</button>" not in body
 
 
 # --- presence form defaults to the Default location ----------------------
