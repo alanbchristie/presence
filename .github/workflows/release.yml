@@ -32,7 +32,7 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          image="${{ vars.DOCKERHUB_USERNAME }}/presence-web"
+          image="${{ vars.DOCKERHUB_USERNAME }}/presence"
           version="${{ steps.version.outputs.version }}"
           tags="${image}:${version}"
           # Only a real published release moves the :latest tag; a manual

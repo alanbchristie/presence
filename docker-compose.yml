@@ -8,7 +8,13 @@ services:
         # with e.g. `VERSION=$(git describe --tags --exact-match 2>/dev/null \
         # || git rev-parse --short HEAD) docker compose build`. Defaults to dev.
         VERSION: ${VERSION:-dev}
-    image: presence-web
+    # Image name matches the one published to Docker Hub by the release
+    # workflow (.github/workflows/release.yml). PRESENCE_TAG selects which tag
+    # to run: leave it 'latest' (default) and `docker compose build` / `up
+    # --build` to build locally, or set it to a released version (e.g. 1.3.0)
+    # in .env and `docker compose pull` to run the published image without
+    # building it.
+    image: alanbchristie/presence:${PRESENCE_TAG:-latest}
     container_name: presence-web
     ports:
     # Bind the app's port to loopback by default so that, under the TLS profile,
