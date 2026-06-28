@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from astral.geocoder import database, lookup
 from astral.sun import sun
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
 
 from presence.models import (
@@ -188,13 +188,16 @@ def test_clean_solar_matrix_city_requirement(make_presence, open_solar, close_so
             latest_off_offset=timedelta(minutes=15),
         )
 
-    # city omitted (=""):
+    # city omitted (="") on the location:
     p = make_presence(city="", **kwargs)
     if open_solar or close_solar:
         with pytest.raises(ValidationError) as exc:
             p.clean()
-        assert exc.value.message_dict["city"] == [
-            "Required when either window edge is solar-relative."
+        # The city now lives on the location, so the requirement surfaces as a
+        # non-field error (issue #43).
+        assert exc.value.message_dict[NON_FIELD_ERRORS] == [
+            "The presence's location needs a city when either window "
+            "edge is solar-relative."
         ]
     else:
         p.clean()  # pure absolute baseline, no city needed
@@ -212,7 +215,8 @@ def test_clean_city_error_isolated_when_offsets_present(make_presence):
     )
     with pytest.raises(ValidationError) as exc:
         p.clean()
-    assert list(exc.value.message_dict) == ["city"]
+    # Only the (non-field) missing-city error fires; the offset is present.
+    assert list(exc.value.message_dict) == [NON_FIELD_ERRORS]
 
 
 def test_clean_rejects_zero_length_absolute_window(make_presence):

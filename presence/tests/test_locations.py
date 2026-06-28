@@ -105,7 +105,9 @@ def test_add_renders_form(client, django_user_model):
 def test_add_creates_location(client, django_user_model):
     _login(client, django_user_model)
 
-    response = client.post(reverse("location_add"), {"name": "New Place"})
+    response = client.post(
+        reverse("location_add"), {"name": "New Place", "timezone": "UTC"}
+    )
 
     location = Location.objects.get(name="New Place")
     assert response.status_code == 302
@@ -115,7 +117,10 @@ def test_add_creates_location(client, django_user_model):
 def test_edit_renames_location(client, django_user_model, location):
     _login(client, django_user_model)
 
-    response = client.post(reverse("location_edit", args=[location.pk]), {"name": "Renamed"})
+    response = client.post(
+        reverse("location_edit", args=[location.pk]),
+        {"name": "Renamed", "timezone": "UTC"},
+    )
 
     assert response.status_code == 302
     location.refresh_from_db()

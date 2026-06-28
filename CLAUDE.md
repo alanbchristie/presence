@@ -70,15 +70,22 @@ must be preserved when editing it:
 
 `presence/models.py` `Presence` computes the daily active window two ways,
 selected per row:
-- **Absolute**: `earliest_on` / `latest_off` wall-clock times in the row's IANA
-  `timezone`.
+- **Absolute**: `earliest_on` / `latest_off` wall-clock times, interpreted in
+  the IANA `timezone` of the presence's `Location`.
 - **Solar**: offsets relative to sunset/sunrise via the `astral` library's
-  built-in city database (`city` field).
+  built-in city database, keyed by the `Location`'s `city`.
 
-`Presence.clean()` enforces which fields are required for the chosen mode and
-validates `identifier` (RFC 1123 DNS label, unique), `timezone`, and `city`.
-The window helpers (`is_in_window`, `next_window_open`, `window_close_after`,
-`_window_for_date`) are the contract the runner depends on.
+`timezone` and `city` live on `Location` (issue #43): all presences at a
+location share them, and the window helpers read `self.location.timezone` /
+`self.location.city`. The same-named `Presence` fields are deprecated, nullable,
+and unused (kept for history). `Location.clean`/field validators check the IANA
+`timezone` and astral `city`; `Presence.clean()` enforces which window fields
+are required for the chosen mode, validates `identifier` (RFC 1123 DNS label,
+unique), and — for a solar edge — raises a non-field error unless the linked
+location names a city. The window helpers (`is_in_window`, `next_window_open`,
+`window_close_after`, `_window_for_date`) are the contract the runner depends
+on; the API (`_serialize`) still exposes `timezone`/`city`, sourced from the
+location.
 
 ### API
 

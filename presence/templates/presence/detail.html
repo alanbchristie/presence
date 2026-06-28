@@ -34,8 +34,13 @@
       <a href="{% url 'access_key_detail' presence.access_key.pk %}" class="link-secondary text-decoration-none">{{ presence.access_key.name }}</a>
     </dd>
 
+    <dt class="col-sm-3">Location</dt>
+    <dd class="col-sm-9">
+      <a href="{% url 'location_detail' presence.location.pk %}" class="link-secondary text-decoration-none">{{ presence.location.name }}</a>
+    </dd>
+
     <dt class="col-sm-3">Timezone</dt>
-    <dd class="col-sm-9">{{ presence.timezone }}</dd>
+    <dd class="col-sm-9">{{ data.timezone }}</dd>
 
     <dt class="col-sm-3">Earliest on</dt>
     <dd class="col-sm-9">
