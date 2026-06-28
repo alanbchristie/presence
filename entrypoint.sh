@@ -8,6 +8,14 @@ if [[ -n "${DJANGO_SUPERUSER_USERNAME:-}" \
     python manage.py createsuperuser --noinput || true
 fi
 
+# Populate STATIC_ROOT for whitenoise before starting any server. With DEBUG
+# off (the secure default) the staticfiles storage is whitenoise's manifest
+# backend, which raises "Missing staticfiles manifest entry" on every page
+# unless this has run. That holds regardless of PRESENCE_SERVER, so it must run
+# for runserver as well as gunicorn (collectstatic is harmless under the plain
+# storage used when DEBUG is on).
+python manage.py collectstatic --noinput
+
 case "${PRESENCE_SERVER:-runserver}" in
     runserver)
         # Django's dev server. NEVER use in production. Single-process,
@@ -17,8 +25,6 @@ case "${PRESENCE_SERVER:-runserver}" in
     gunicorn)
         # Production-grade WSGI. --workers 1 is mandatory: the background
         # runner thread is in-process and would race across workers.
-        # collectstatic populates STATIC_ROOT for whitenoise to serve.
-        python manage.py collectstatic --noinput
         exec gunicorn presence_site.wsgi:application \
             --bind 0.0.0.0:8000 \
             --workers 1 \
