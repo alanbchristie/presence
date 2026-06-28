@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Duplicate {{ source.name }} &mdash; Locations{% endblock %}
+
+{% block content %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'location_index' %}" class="link-secondary text-decoration-none">Locations</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'location_detail' source.pk %}" class="link-secondary text-decoration-none">{{ source.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Duplicate</li>
+    </ol>
+  </nav>
+
+  <h1 class="h3 mb-1">Duplicate {{ source.name }}</h1>
+  <p class="text-secondary">Give the new location a name.</p>
+
+  <form method="post" action="{% url 'location_duplicate' source.pk %}" novalidate>
+    {% csrf_token %}
+    {% include "presence/_form_fields.html" %}
+    <div class="d-flex gap-2">
+      <a href="{% url 'location_detail' source.pk %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Create copy</button>
+    </div>
+  </form>
+{% endblock %}
