@@ -2,6 +2,8 @@ from zoneinfo import ZoneInfo
 
 from django import forms
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .forms import SignedDurationFormField
 from .models import AccessKey, Location, Presence
@@ -61,7 +63,7 @@ class PresenceAdmin(admin.ModelAdmin):
         "next_transition_at_local",
         "earliest_on",
         "latest_off",
-        "location",
+        "location_link",
     )
     list_display_links = ("id", "identifier", "name")
     list_filter = ("enabled", "current_state", "location")
@@ -107,6 +109,13 @@ class PresenceAdmin(admin.ModelAdmin):
         ),
         ("Audit", {"fields": ("created_at_utc", "updated_at_utc")}),
     )
+
+    @admin.display(description="Location", ordering="location__name")
+    def location_link(self, obj):
+        url = reverse(
+            "admin:presence_location_change", args=[obj.location.pk]
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.location.name)
 
     @admin.display(description="State since (row tz)", ordering="state_since")
     def state_since_local(self, obj):
