@@ -139,7 +139,7 @@ your working tree. To override it, export `VERSION` before launching.
 
 Publishing a GitHub **Release** triggers `.github/workflows/release.yml`, which
 builds a multi-architecture image (`linux/amd64` and `linux/arm64`) and pushes
-it to Docker Hub as `DOCKERHUB_USERNAME/presence-web`, tagged with the release
+it to Docker Hub as `DOCKERHUB_USERNAME/presence`, tagged with the release
 version and `:latest`. The same workflow can be run manually via
 **workflow_dispatch** (which publishes only the version tag, not `:latest`).
 

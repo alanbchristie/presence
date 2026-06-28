@@ -35,7 +35,7 @@ jobs:
           file: ./Dockerfile
           push: false
           load: true
-          tags: presence-web:ci
+          tags: presence:ci
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
@@ -46,9 +46,9 @@ jobs:
           # Settings fail closed without a secret key when DEBUG is off (the
           # default), so supply a throwaway one for this production-mode check.
           docker run --rm -e DJANGO_SECRET_KEY=ci-smoke-test-not-a-real-secret \
-            presence-web:ci \
+            presence:ci \
             python manage.py check
-          baked="$(docker run --rm presence-web:ci printenv VERSION)"
+          baked="$(docker run --rm presence:ci printenv VERSION)"
           echo "Image VERSION=$baked"
           test "$baked" = "${{ steps.version.outputs.version }}"
 
