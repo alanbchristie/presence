@@ -135,6 +135,24 @@ docker compose up -d
 **`runserver` (no Docker)** — nothing required; the version is read from git in
 your working tree. To override it, export `VERSION` before launching.
 
+## Publishing images (Docker Hub)
+
+Publishing a GitHub **Release** triggers `.github/workflows/release.yml`, which
+builds a multi-architecture image (`linux/amd64` and `linux/arm64`) and pushes
+it to Docker Hub as `DOCKERHUB_USERNAME/presence-web`, tagged with the release
+version and `:latest`. The same workflow can be run manually via
+**workflow_dispatch** (which publishes only the version tag, not `:latest`).
+
+It needs two repository settings:
+
+- `DOCKERHUB_USERNAME` — a repository **variable** (Settings → Secrets and
+  variables → Actions → Variables) holding the Docker Hub account/namespace.
+- `DOCKERHUB_TOKEN` — a repository **secret** holding a Docker Hub access token.
+
+The username is a variable rather than a secret so it can gate the workflow:
+when `DOCKERHUB_USERNAME` is unset the publish job is skipped entirely, so forks
+without Docker Hub credentials publish nothing.
+
 ## API
 
 `GET /api/presence/<identifier>/` returns a JSON object describing the row, where `<identifier>` is the row's RFC 1123-style identifier (e.g. `living-room`, `sequence-a`). The `X-API-Key` header must carry the value of the access key linked to that presence (create and manage keys on the **Access keys** page). Example:
