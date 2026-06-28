@@ -8,6 +8,25 @@
   <h1 class="h3">Presence</h1>
   <p class="text-secondary small">Live on/off state &mdash; refreshes every 20 seconds.</p>
 
+  {% if locations %}
+  <form method="get" class="row row-cols-lg-auto g-2 align-items-center mb-3">
+    <div class="col-12">
+      <label for="locationFilter" class="col-form-label">Location</label>
+    </div>
+    <div class="col-12">
+      <select name="location" id="locationFilter" class="form-select" onchange="this.form.submit()">
+        <option value="">All locations</option>
+        {% for location in locations %}
+        <option value="{{ location.pk }}" {% if location.pk == selected_location %}selected{% endif %}>{{ location.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <button type="submit" class="btn btn-outline-secondary">Filter</button>
+    </div>
+  </form>
+  {% endif %}
+
   {% if presences %}
   <table class="table table-hover align-middle">
     <thead>
@@ -15,6 +34,7 @@
         <th scope="col" class="text-center">State</th>
         <th scope="col">Name</th>
         <th scope="col">Identifier</th>
+        <th scope="col">Location</th>
         <th scope="col" class="text-center">Enabled</th>
       </tr>
     </thead>
@@ -32,6 +52,7 @@
         </td>
         <td class="fw-semibold">{{ p.name }}</td>
         <td><a href="{% url 'detail' p.identifier %}" class="link-secondary text-decoration-none font-monospace">{{ p.identifier }}</a></td>
+        <td>{{ p.location.name }}</td>
         <td class="text-center">
           {% if p.enabled %}
             <span class="badge rounded-pill text-bg-success">Enabled</span>
