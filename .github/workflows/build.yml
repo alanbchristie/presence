@@ -26,10 +26,10 @@ jobs:
           echo "Building VERSION=$version"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build image (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -60,7 +60,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        # Pinned to a full version: setup-uv publishes no moving `v8` major
+        # tag (only v8.x.y), unlike the other actions here.
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.14"
 
@@ -75,7 +77,7 @@ jobs:
         run: uv run pytest -q --cov=presence --cov-report=xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
