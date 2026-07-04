@@ -42,11 +42,23 @@ def validate_astral_city(value: str) -> None:
         )
 
 
-#: One coordinate: a decimal number, an optional degree symbol, and an
-#: optional hemisphere letter. A sign and a hemisphere letter both give
-#: the direction, so combining them is rejected in ``_parse_coordinate``.
+#: One coordinate: decimal degrees, or degrees / minutes / seconds, with
+#: an optional hemisphere letter. Minutes and seconds each require the
+#: preceding component's symbol, so "36 21'" cannot parse as DMS. ASCII
+#: and typographic quote/prime marks are all accepted for ' and ".
+#: A sign and a hemisphere letter both give the direction, so combining
+#: them is rejected in ``_parse_coordinate``.
 _COORDINATE_RE = re.compile(
-    r"^(?P<degrees>[+-]?\d+(?:\.\d+)?)\s*°?\s*(?P<hemisphere>[A-Za-z])?$"
+    r"""
+    ^(?P<degrees>[+-]?\d+(?:\.\d+)?)
+    (?:\s*°
+       (?:\s*(?P<minutes>\d+(?:\.\d+)?)\s*['’′]
+          (?:\s*(?P<seconds>\d+(?:\.\d+)?)\s*["”″])?
+       )?
+    )?
+    \s*(?P<hemisphere>[A-Za-z])?$
+    """,
+    re.VERBOSE,
 )
 
 
@@ -54,39 +66,62 @@ def _parse_coordinate(text: str, hemispheres: str) -> float:
     """Parse one latitude or longitude from its textual form.
 
     Accepts a signed decimal ("-5.24036"), optionally with a degree
-    symbol, or an unsigned decimal with one of the ``hemispheres``
-    letters supplying the sign ("5.24036° W"). Raises ValueError for
-    anything else.
+    symbol, or degrees / minutes / optional seconds ("5° 14' 25.3\""),
+    either signed or with one of the ``hemispheres`` letters supplying
+    the sign ("5.24036° W", "5°14'25\"W"). A decimal point is only
+    allowed in the smallest component given, and minutes and seconds
+    must be below 60. Raises ValueError for anything else.
     """
     match = _COORDINATE_RE.match(text.strip())
     if match is None:
-        raise ValueError(f"{text!r} is not a decimal coordinate")
-    degrees = float(match["degrees"])
+        raise ValueError(f"{text!r} is not a decimal or DMS coordinate")
+    degrees_text = match["degrees"]
+    magnitude = abs(float(degrees_text))
+    negative = degrees_text[0] == "-"
+    if match["minutes"] is not None:
+        if "." in degrees_text:
+            raise ValueError(
+                f"{text!r} has minutes after fractional degrees"
+            )
+        minutes = float(match["minutes"])
+        if minutes >= 60.0:
+            raise ValueError(f"{text!r} has minutes of 60 or more")
+        magnitude += minutes / 60.0
+        if match["seconds"] is not None:
+            if "." in match["minutes"]:
+                raise ValueError(
+                    f"{text!r} has seconds after fractional minutes"
+                )
+            seconds = float(match["seconds"])
+            if seconds >= 60.0:
+                raise ValueError(f"{text!r} has seconds of 60 or more")
+            magnitude += seconds / 3600.0
     hemisphere = (match["hemisphere"] or "").upper()
     if hemisphere:
         if hemisphere not in hemispheres:
             raise ValueError(
                 f"{text!r} does not end with one of {'/'.join(hemispheres)}"
             )
-        if match["degrees"][0] in "+-":
+        if degrees_text[0] in "+-":
             raise ValueError(
                 f"{text!r} has both a sign and a hemisphere letter"
             )
-        if hemisphere in "SW":
-            degrees = -degrees
-    return degrees
+        negative = hemisphere in "SW"
+    return -magnitude if negative else magnitude
 
 
 def parse_lat_lon(value: str) -> tuple[float, float]:
     """Parse a comma-separated "lat,lon" pair into decimal degrees.
 
-    Each half is either a signed decimal ("51.520847,-0.195521") or
-    decimal degrees with a hemisphere letter ("36.35702° N, 5.24036° W");
-    the degree symbol is optional and S/W negate. Whitespace around
-    either number is tolerated. Raises ValueError when the string is not
-    two comma-separated coordinates, a sign and hemisphere letter are
-    combined, or either number is outside its valid range (±90 latitude,
-    ±180 longitude).
+    Each half is a signed decimal ("51.520847,-0.195521"), decimal
+    degrees with a hemisphere letter ("36.35702° N, 5.24036° W"), or
+    degrees / minutes / optional seconds ("36°21'25\"N, 5°14'25\"W");
+    the degree symbol is optional on plain decimals and S/W negate.
+    Whitespace around either number is tolerated. Raises ValueError when
+    the string is not two comma-separated coordinates, a sign and
+    hemisphere letter are combined, minutes or seconds are malformed, or
+    either number is outside its valid range (±90 latitude, ±180
+    longitude).
     """
     parts = (value or "").split(",")
     if len(parts) != 2:
@@ -121,8 +156,9 @@ def validate_lat_lon(value: str) -> None:
     except ValueError:
         raise ValidationError(
             f"{value!r} is not a 'lat,lon' pair — use decimals "
-            "(e.g. 51.520847,-0.195521) or degrees with N/S/E/W "
-            "(e.g. 36.35702° N, 5.24036° W)."
+            "(e.g. 51.520847,-0.195521), degrees with N/S/E/W "
+            "(e.g. 36.35702° N, 5.24036° W), or degrees/minutes/seconds "
+            "(e.g. 36°21'25\"N, 5°14'25\"W)."
         )
 
 
@@ -181,8 +217,9 @@ class Location(models.Model):
         validators=[validate_lat_lon],
         help_text=(
             "Optional 'lat,lon' pair, as decimals (e.g. "
-            "51.520847,-0.195521) or degrees with N/S/E/W (e.g. "
-            "36.35702° N, 5.24036° W). When set, the map places this "
+            "51.520847,-0.195521), degrees with N/S/E/W (e.g. "
+            "36.35702° N, 5.24036° W), or degrees/minutes/seconds (e.g. "
+            "36°21'25\"N, 5°14'25\"W). When set, the map places this "
             "location here instead of at its city. The edit form also "
             "accepts a What3Words address (///word.word.word); all forms "
             "are stored as the decimal pair."

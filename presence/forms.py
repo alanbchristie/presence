@@ -227,9 +227,9 @@ class LocationForm(forms.ModelForm):
 
     Carries the ``timezone`` and ``city`` that the location's presences use for
     their window times (issue #43), and the optional map ``position`` (issue
-    #54) — entered as a lat,lon pair (decimal or degrees with N/S/E/W) or a
-    What3Words address, but always stored (and redisplayed) as the decimal
-    pair. The view guards
+    #54) — entered as a lat,lon pair (decimal, degrees with N/S/E/W, or
+    degrees/minutes/seconds) or a What3Words address, but always stored
+    (and redisplayed) as the decimal pair. The view guards
     against renaming the protected ``Default`` location.
     """
 
@@ -239,10 +239,11 @@ class LocationForm(forms.ModelForm):
         help_texts = {
             "position": (
                 "Optional. A 'lat,lon' pair — decimals (e.g. "
-                "51.520847,-0.195521) or degrees with N/S/E/W (e.g. "
-                "36.35702° N, 5.24036° W) — or a What3Words address "
-                "(///filled.count.soap). When set, the map places this "
-                "location here instead of at its city."
+                "51.520847,-0.195521), degrees with N/S/E/W (e.g. "
+                "36.35702° N, 5.24036° W), or degrees/minutes/seconds "
+                "(e.g. 36°21'25\"N, 5°14'25\"W) — or a What3Words "
+                "address (///filled.count.soap). When set, the map "
+                "places this location here instead of at its city."
             ),
         }
 
@@ -271,9 +272,10 @@ class LocationForm(forms.ModelForm):
         except ValueError:
             raise forms.ValidationError(
                 "Enter a 'lat,lon' pair — decimals (e.g. "
-                "51.520847,-0.195521) or degrees with N/S/E/W (e.g. "
-                "36.35702° N, 5.24036° W) — or a What3Words address "
-                "(///filled.count.soap)."
+                "51.520847,-0.195521), degrees with N/S/E/W (e.g. "
+                "36.35702° N, 5.24036° W), or degrees/minutes/seconds "
+                "(e.g. 36°21'25\"N, 5°14'25\"W) — or a What3Words "
+                "address (///filled.count.soap)."
             )
         return format_lat_lon(latitude, longitude)
 

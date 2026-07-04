@@ -1,8 +1,9 @@
 """Tests for the optional Location ``position`` (issue #54).
 
 ``position`` stores a decimal "lat,lon" pair, entered as decimals
-("51.520847,-0.195521") or degrees with hemisphere letters
-("36.35702° N, 5.24036° W"). The Create/Edit form also
+("51.520847,-0.195521"), degrees with hemisphere letters
+("36.35702° N, 5.24036° W"), or degrees/minutes/seconds
+("36°21'25\"N, 5°14'25\"W"). The Create/Edit form also
 accepts a What3Words address (``///filled.count.soap``), which the server
 converts to decimal lat/lon at validation time via the What3Words REST
 API — the stored value is always the decimal pair. When set, the map
@@ -83,6 +84,51 @@ def test_parse_lat_lon_accepts_degrees_with_hemisphere(value, expected):
     ],
 )
 def test_parse_lat_lon_rejects_bad_hemisphere_input(value):
+    with pytest.raises(ValueError):
+        parse_lat_lon(value)
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        # classic DMS with hemisphere letters
+        (
+            "36°21'25\"N, 5°14'25\"W",
+            (36 + 21 / 60 + 25 / 3600, -(5 + 14 / 60 + 25 / 3600)),
+        ),
+        # spaces, unicode primes, and decimal seconds
+        (
+            "36° 21′ 25.3″ N, 5° 14′ 25.3″ W",
+            (36 + 21 / 60 + 25.3 / 3600, -(5 + 14 / 60 + 25.3 / 3600)),
+        ),
+        # degrees and decimal minutes, no seconds
+        (
+            "36° 21.42' N, 5° 14.42' W",
+            (36 + 21.42 / 60, -(5 + 14.42 / 60)),
+        ),
+        # signed DMS without hemisphere letters
+        (
+            "36° 21' 25\", -5° 14' 25\"",
+            (36 + 21 / 60 + 25 / 3600, -(5 + 14 / 60 + 25 / 3600)),
+        ),
+    ],
+)
+def test_parse_lat_lon_accepts_degrees_minutes_seconds(value, expected):
+    assert parse_lat_lon(value) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "36° 61' N, 0° E",  # minutes must be below 60
+        "36° 21' 61\" N, 0° E",  # seconds must be below 60
+        "36.5° 21' N, 0° E",  # decimal degrees cannot carry minutes
+        "36° 21.5' 10\" N, 0° E",  # decimal minutes cannot carry seconds
+        "36 21' N, 0° E",  # minutes need the degree symbol first
+        "36° 21' 25\" 5\" N, 0° E",  # stray extra component
+    ],
+)
+def test_parse_lat_lon_rejects_malformed_dms(value):
     with pytest.raises(ValueError):
         parse_lat_lon(value)
 
@@ -234,6 +280,14 @@ def test_form_normalizes_degrees_with_hemisphere_to_decimal():
     form = LocationForm(data=_form_data(position="36.35702° N, 5.24036° W"))
     assert form.is_valid(), form.errors
     assert form.cleaned_data["position"] == "36.35702,-5.24036"
+
+
+def test_form_normalizes_dms_to_decimal():
+    form = LocationForm(
+        data=_form_data(position="36°21'25.3\"N, 5°14'25.3\"W")
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["position"] == "36.357028,-5.240361"
 
 
 def test_form_allows_blank_position():
