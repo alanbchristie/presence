@@ -45,9 +45,7 @@ class PresenceAdminForm(forms.ModelForm):
 
     class Meta:
         model = Presence
-        # timezone/city are deprecated (moved to Location, issue #43); keep them
-        # out of the admin form.
-        exclude = ("timezone", "city")
+        fields = "__all__"
 
 
 @admin.register(Presence)

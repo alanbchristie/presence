@@ -3,15 +3,13 @@
 The window times are still per-presence, but the timezone they are interpreted
 in (and the city used for solar edges) now live on the presence's Location. The
 API continues to expose both. The deprecated Presence.timezone / Presence.city
-fields are no longer used or shown to the user.
+columns were dropped entirely in issue #52.
 """
-import importlib
 import json
 from datetime import time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from django.apps import apps as global_apps
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.urls import reverse
 
@@ -105,38 +103,14 @@ def test_presence_form_drops_deprecated_timezone_and_city():
     assert "city" not in fields
 
 
-# --- the 0012 data migration seeds locations from their presences --------
+# --- the deprecated Presence columns are gone (issue #52) -----------------
+#
+# (The 0012 data-migration tests that lived here exercised its copy function
+# against the live registry; they could only work while the deprecated
+# Presence columns still existed, so they were retired with the columns.)
 
 
-def _copy_func():
-    module = importlib.import_module(
-        "presence.migrations.0012_move_timezone_city_to_location"
-    )
-    return module.copy_timezone_city_to_location
-
-
-def test_migration_copies_first_presence_tz_city_to_location(make_presence):
-    loc = Location.objects.create(name="Seed", timezone="UTC", city="")
-    presence = make_presence(location=loc)
-    presence.save()
-    # Simulate the pre-migration state: the deprecated Presence fields still
-    # carry the real values that must be lifted onto the location.
-    Presence.objects.filter(pk=presence.pk).update(
-        timezone="Europe/London", city="London"
-    )
-
-    _copy_func()(global_apps, None)
-
-    loc.refresh_from_db()
-    assert loc.timezone == "Europe/London"
-    assert loc.city == "London"
-
-
-def test_migration_leaves_presence_free_location_at_defaults():
-    loc = Location.objects.create(name="Empty", timezone="UTC", city="")
-
-    _copy_func()(global_apps, None)
-
-    loc.refresh_from_db()
-    assert loc.timezone == "UTC"
-    assert loc.city == ""
+def test_presence_model_drops_deprecated_timezone_and_city():
+    field_names = {field.name for field in Presence._meta.get_fields()}
+    assert "timezone" not in field_names
+    assert "city" not in field_names
