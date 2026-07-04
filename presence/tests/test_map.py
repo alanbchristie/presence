@@ -191,3 +191,73 @@ def test_map_orders_plotted_locations_by_name(client, django_user_model):
         "Annex",
         "Zurich HQ",
     ]
+
+
+def test_map_plotted_entries_carry_the_location_id(client, django_user_model):
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Europe/London", city="London"
+    )
+
+    entry = client.get(reverse("map")).context["plotted"][0]
+
+    assert entry["id"] == office.pk
+
+
+# --- status endpoint (live marker refresh) ---------------------------------
+
+
+def test_map_status_redirects_anonymous_to_login(client):
+    response = client.get(reverse("map_status"))
+    assert response.status_code == 302
+    assert reverse("login") in response["Location"]
+
+
+def test_map_status_rejects_post(client, django_user_model):
+    _login(client, django_user_model)
+    assert client.post(reverse("map_status")).status_code == 405
+
+
+def test_map_status_reports_every_location(client, django_user_model, make_presence):
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Europe/London", city="London"
+    )
+    shed = Location.objects.create(name="Shed", timezone="UTC")
+    make_presence(
+        identifier="a", name="A", location=office, enabled=True, current_state="on"
+    ).save()
+
+    payload = client.get(reverse("map_status")).json()
+
+    by_id = {entry["id"]: entry for entry in payload["locations"]}
+    assert by_id[office.pk]["status"] == "on"
+    assert by_id[office.pk]["on_count"] == 1
+    assert by_id[office.pk]["off_count"] == 0
+    assert by_id[office.pk]["disabled_count"] == 0
+    # Locations without a city are still reported; the client simply has
+    # no marker to recolour for them.
+    assert by_id[shed.pk]["status"] == "disabled"
+
+
+def test_map_status_matches_page_aggregation(client, django_user_model, make_presence):
+    """The endpoint and the page must never disagree on a dot's colour."""
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Europe/London", city="London"
+    )
+    make_presence(
+        identifier="a", name="A", location=office, enabled=True, current_state="off"
+    ).save()
+    make_presence(
+        identifier="b", name="B", location=office, enabled=False, current_state="on"
+    ).save()
+
+    page_entry = client.get(reverse("map")).context["plotted"][0]
+    api_entry = {
+        entry["id"]: entry
+        for entry in client.get(reverse("map_status")).json()["locations"]
+    }[office.pk]
+
+    for key in ("status", "on_count", "off_count", "disabled_count"):
+        assert api_entry[key] == page_entry[key]

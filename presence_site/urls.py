@@ -19,6 +19,7 @@ urlpatterns = [
     path("access-key/<int:pk>/delete/", presence_views.access_key_delete, name="access_key_delete"),
     path("access-key/<int:pk>/regenerate/", presence_views.access_key_regenerate, name="access_key_regenerate"),
     path("map/", presence_views.world_map, name="map"),
+    path("map/status/", presence_views.map_status, name="map_status"),
     path("location/", presence_views.location_index, name="location_index"),
     path("location/add/", presence_views.location_add, name="location_add"),
     path("location/<int:pk>/", presence_views.location_detail, name="location_detail"),

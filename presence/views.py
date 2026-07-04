@@ -332,6 +332,37 @@ def access_key_regenerate(request, pk: int):
 # --- world map -------------------------------------------------------------
 
 
+def _location_status(location: Location) -> dict:
+    """Aggregate the states of a location's presences for its map marker.
+
+    "on" when any enabled presence is on, else "off" when any enabled
+    presence exists, else "disabled" (all disabled, or no presences at
+    all) — mirroring the status badges on the presence list. The counts
+    feed the marker tooltip.
+    """
+    on_count = off_count = disabled_count = 0
+    for presence in location.presences.all():
+        if not presence.enabled:
+            disabled_count += 1
+        elif presence.current_state == Presence.State.ON:
+            on_count += 1
+        else:
+            off_count += 1
+    if on_count:
+        status = "on"
+    elif off_count:
+        status = "off"
+    else:
+        status = "disabled"
+    return {
+        "id": location.pk,
+        "status": status,
+        "on_count": on_count,
+        "off_count": off_count,
+        "disabled_count": disabled_count,
+    }
+
+
 @login_required
 @require_GET
 def world_map(request):
@@ -341,13 +372,8 @@ def world_map(request):
     ``city`` (the same database the solar windows use), so locations without
     a city cannot be plotted and are listed separately instead. The night
     shadow and the per-location local-time labels are computed client-side
-    (static/presence/js/worldmap.js) from the payload rendered here.
-
-    Each marker's dot is coloured by the aggregate state of the presences
-    at that location: "on" when any enabled presence is on, else "off"
-    when any enabled presence exists, else "disabled" (all disabled, or no
-    presences at all). The counts are exposed for the marker tooltip. The
-    states are as of page load; the page does not poll for changes.
+    (static/presence/js/worldmap.js) from the payload rendered here; the
+    marker dots are recoloured live by polling :func:`map_status`.
     """
     plotted = []
     unplottable = []
@@ -357,20 +383,6 @@ def world_map(request):
             unplottable.append(location)
             continue
         latitude, longitude = coordinates
-        on_count = off_count = disabled_count = 0
-        for presence in location.presences.all():
-            if not presence.enabled:
-                disabled_count += 1
-            elif presence.current_state == Presence.State.ON:
-                on_count += 1
-            else:
-                off_count += 1
-        if on_count:
-            status = "on"
-        elif off_count:
-            status = "off"
-        else:
-            status = "disabled"
         plotted.append(
             {
                 "name": location.name,
@@ -379,16 +391,34 @@ def world_map(request):
                 "latitude": latitude,
                 "longitude": longitude,
                 "url": reverse("location_detail", args=[location.pk]),
-                "status": status,
-                "on_count": on_count,
-                "off_count": off_count,
-                "disabled_count": disabled_count,
+                **_location_status(location),
             }
         )
     return render(
         request,
         "presence/map.html",
         {"plotted": plotted, "unplottable": unplottable},
+    )
+
+
+@login_required
+@require_GET
+def map_status(request):
+    """Per-location marker status for the map page's polling refresh.
+
+    Session-authenticated like the page itself (this is operator UI, not
+    the keyed public API). Every location is reported — coordinates are
+    irrelevant here, and the client just ignores ids it has no marker
+    for. Locations created since the page loaded only appear on the map
+    after a reload; this endpoint only recolours existing markers.
+    """
+    return JsonResponse(
+        {
+            "locations": [
+                _location_status(location)
+                for location in Location.objects.prefetch_related("presences")
+            ]
+        }
     )
 
 
