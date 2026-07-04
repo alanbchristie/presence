@@ -104,6 +104,82 @@ def test_map_lists_cityless_locations_as_unplottable(client, django_user_model):
     assert "Default" in unplottable_names
 
 
+def test_map_marker_status_on_when_any_enabled_presence_is_on(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Europe/London", city="London"
+    )
+    make_presence(
+        identifier="a", name="A", location=office, enabled=True, current_state="on"
+    ).save()
+    make_presence(
+        identifier="b", name="B", location=office, enabled=True, current_state="off"
+    ).save()
+    make_presence(
+        identifier="c", name="C", location=office, enabled=False, current_state="off"
+    ).save()
+
+    entry = client.get(reverse("map")).context["plotted"][0]
+
+    assert entry["status"] == "on"
+    assert entry["on_count"] == 1
+    assert entry["off_count"] == 1
+    assert entry["disabled_count"] == 1
+
+
+def test_map_marker_status_off_when_enabled_presences_are_all_off(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Europe/London", city="London"
+    )
+    make_presence(
+        identifier="a", name="A", location=office, enabled=True, current_state="off"
+    ).save()
+    make_presence(
+        identifier="b", name="B", location=office, enabled=False, current_state="on"
+    ).save()
+
+    entry = client.get(reverse("map")).context["plotted"][0]
+
+    # A disabled presence never counts as on, whatever its stored state.
+    assert entry["status"] == "off"
+    assert entry["on_count"] == 0
+    assert entry["off_count"] == 1
+    assert entry["disabled_count"] == 1
+
+
+def test_map_marker_status_disabled_when_all_presences_disabled(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Europe/London", city="London"
+    )
+    make_presence(
+        identifier="a", name="A", location=office, enabled=False, current_state="off"
+    ).save()
+
+    entry = client.get(reverse("map")).context["plotted"][0]
+
+    assert entry["status"] == "disabled"
+
+
+def test_map_marker_status_disabled_without_presences(client, django_user_model):
+    _login(client, django_user_model)
+    Location.objects.create(name="Office", timezone="Europe/London", city="London")
+
+    entry = client.get(reverse("map")).context["plotted"][0]
+
+    assert entry["status"] == "disabled"
+    assert entry["on_count"] == 0
+    assert entry["off_count"] == 0
+    assert entry["disabled_count"] == 0
+
+
 def test_map_orders_plotted_locations_by_name(client, django_user_model):
     _login(client, django_user_model)
     Location.objects.create(name="Zurich HQ", timezone="Europe/Zurich", city="Zurich")

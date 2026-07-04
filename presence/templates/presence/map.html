@@ -28,10 +28,15 @@
     height: 0.65rem;
     margin: 0 auto;
     border-radius: 50%;
-    background: #e8735c;
+    /* Dot colour mirrors the status badges on the presence list:
+       green = any enabled presence on, red = enabled but all off,
+       grey = disabled/empty location. */
+    background: var(--bs-secondary);
     border: 2px solid rgba(255, 255, 255, 0.9);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
+  .map-marker-dot.status-on { background: var(--bs-success); }
+  .map-marker-dot.status-off { background: var(--bs-danger); }
   .map-marker-label {
     position: absolute;
     bottom: 0.9rem;

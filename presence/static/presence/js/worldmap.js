@@ -121,16 +121,36 @@
     }
   }
 
+  /* "1 on · 2 off · 1 disabled" (empty for a location with no presences). */
+  function presenceSummary(location) {
+    var parts = [];
+    if (location.on_count) {
+      parts.push(location.on_count + " on");
+    }
+    if (location.off_count) {
+      parts.push(location.off_count + " off");
+    }
+    if (location.disabled_count) {
+      parts.push(location.disabled_count + " disabled");
+    }
+    return parts.join(" · ");
+  }
+
   var markers = locations.map(function (location) {
     var anchor = document.createElement("a");
     anchor.className = "map-marker";
     anchor.href = location.url;
-    anchor.title = location.city + " · " + location.timezone;
+    var summary = presenceSummary(location);
+    anchor.title =
+      location.city +
+      " · " +
+      location.timezone +
+      (summary ? " — " + summary : " — no presences");
 
     var label = document.createElement("span");
     label.className = "map-marker-label";
     var dot = document.createElement("span");
-    dot.className = "map-marker-dot";
+    dot.className = "map-marker-dot status-" + location.status;
     anchor.appendChild(label);
     anchor.appendChild(dot);
     wrap.appendChild(anchor);
