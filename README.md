@@ -17,7 +17,7 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
   - Solar-relative window via `earliest_on_relative_to_sunset` / `earliest_on_offset` and `latest_off_relative_to_sunrise` / `latest_off_offset` (offsets are signed `HH:MM`/`HH:MM:SS` durations) using astral's built-in city database
   - Per-row IANA `timezone` (e.g. `Europe/London`)
   - `enabled` flag to pause a row without deleting it
-- **Background runner thread** started from `AppConfig.ready()` cycles each enabled row between on/off:
+- **Background runner** cycles each enabled row between on/off — a dedicated container under Docker Compose (`manage.py run_runner`), or an in-process thread started from `AppConfig.ready()` under plain `runserver`:
   - First action after each window open is always a randomised **off** phase, so state doesn't snap on at the boundary
   - Active "on" periods are force-truncated at the window close
   - Persists `current_state`, `state_since`, and `next_transition_at` so the admin shows live state
@@ -25,7 +25,7 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
   - Required API key via `X-API-Key` header, matched against the presence's linked **access key** (managed in the web UI)
   - Timestamps render in the row's timezone at second precision
   - Durations render as `HH:MM`, solar offsets as `±HH:MM`
-- **Docker Compose** for one-command boot with persisted SQLite volume
+- **Docker Compose** for one-command boot: PostgreSQL (`db`), the web app (`web`) and the state-machine driver (`runner`)
 - **uv**-managed virtualenv and lockfile
 
 ## Quick start (Docker)
@@ -43,12 +43,16 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
 docker compose up -d --build
 ```
 
-Either way this builds the image (Astral's `uv` slim base), runs migrations, attempts to create an `admin/admin` superuser (idempotent), and starts the dev server.
+Either way this builds the image (Astral's `uv` slim base) and brings up three containers:
+
+- `db` — PostgreSQL, the shared database
+- `web` — the Django app; its entrypoint runs migrations, attempts to create an `admin/admin` superuser (idempotent) and starts the HTTP server
+- `runner` — the state-machine driver (`manage.py run_runner`), started once `web` is healthy (i.e. once the schema exists)
 
 - Admin: <http://localhost:8000/admin/> &nbsp; (`admin` / `admin`)
 - API: `curl http://localhost:8000/api/presence/<identifier>/`
 
-SQLite persists in the named volume `presence-data` (mounted at `/data` inside the container). `docker compose down` keeps it; `docker compose down -v` wipes it.
+PostgreSQL data persists in the named volume `presence-db`. `docker compose down` keeps it; `docker compose down -v` wipes it. (Deployments upgrading from the SQLite-based stack: see [Migrating from SQLite](#migrating-from-sqlite).)
 
 ## Configuration
 
@@ -59,6 +63,7 @@ Docker Compose reads a `.env` file in the project root (gitignored). Copy `.env.
 | `PRESENCE_SERVER` | `runserver` | HTTP server: `runserver` (dev) or `gunicorn` (recommended for non-dev). See [HTTP server](#http-server). |
 | `DJANGO_DEBUG` | `True` | `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`. |
 | `DJANGO_SECRET_KEY` | _(insecure dev key)_ | Set this for any non-dev deployment. Generate with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`. |
+| `PRESENCE_DB_PASSWORD` | `presence` | PostgreSQL password shared by the `db`, `web` and `runner` services. The database publishes no host port, but set a strong value for any non-dev deployment anyway. |
 
 ### TLS (Caddy sidecar)
 
@@ -84,15 +89,44 @@ The app continues to listen on host port 8000 (plain HTTP) for direct curl acces
 - **`runserver`** (default) — Django's development server. Only suitable for local dev.
 - **`gunicorn`** — Recommended for any non-dev use. Mature, sync WSGI server.
 
-Either way the server runs **single-worker**, because the in-process runner thread that drives state transitions would race across workers. If you need to scale to multiple processes, the runner needs to be factored out into a dedicated process first.
+Either way the web server runs **single-worker**: the failed-login/API rate limiter uses an in-process cache that is only coherent within one process. (State transitions are driven by the separate `runner` container, so they no longer pin the worker count — a shared cache backend is the remaining prerequisite for multi-worker web.)
 
 In `gunicorn` mode the entrypoint runs `python manage.py collectstatic --noinput` at boot so admin/static assets are served by [whitenoise](https://whitenoise.readthedocs.io/).
 
 Container-only environment baked into `docker-compose.yml`:
 
-- `PRESENCE_DB_PATH=/data/db.sqlite3` — moves the SQLite file into the persistent volume.
+- `DJANGO_DB_HOST` / `DJANGO_DB_NAME` / `DJANGO_DB_USER` / `DJANGO_DB_PASSWORD` / `DJANGO_DB_PORT` — the shared PostgreSQL connection (presence of `DJANGO_DB_HOST` selects Postgres over the SQLite fallback).
+- `PRESENCE_RUN_RUNNER=false` (web only) — the dedicated `runner` container owns the state-machine loop, so the web container must not also start the in-process thread.
+- `PRESENCE_SERVER=runner` (runner only) — makes the entrypoint exec `manage.py run_runner` instead of an HTTP server.
 - `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]`
 - `DJANGO_SUPERUSER_*` — auto-creates the `admin/admin` superuser on first boot.
+
+## Migrating from SQLite
+
+Before issue #47 the compose stack stored everything in a SQLite file on the
+`presence-data` volume. The database is now PostgreSQL (volume `presence-db`),
+so existing deployments carry their data across once, using
+`scripts/sqlite_to_postgres.sh` (plain Django `dumpdata`/`loaddata`):
+
+```
+# 1. Old stack still running (SQLite image/volume):
+./scripts/sqlite_to_postgres.sh dump      # writes ./presence-dump.json
+./scripts/sqlite_to_postgres.sh counts    # note the row counts
+
+# 2. Update to the new compose file, then:
+docker compose up -d db web               # web's entrypoint migrates Postgres
+
+# 3. Load and verify, then start the runner:
+./scripts/sqlite_to_postgres.sh load
+./scripts/sqlite_to_postgres.sh counts    # must match step 1
+docker compose up -d runner
+```
+
+User password hashes, access-key values and foreign keys survive verbatim.
+Keep the old `presence-data` volume until the counts match — it is the
+rollback. Local non-Docker development is unaffected: without `DJANGO_DB_HOST`
+the app still uses SQLite (`PRESENCE_DB_PATH`, or `db.sqlite3` in the
+checkout).
 
 ## Version (About modal)
 
@@ -216,7 +250,7 @@ uv run python manage.py createsuperuser
 uv run python manage.py runserver
 ```
 
-The runner thread also boots from `runserver`. Code edits trigger Django's autoreloader, which restarts the runner cleanly.
+The runner thread also boots from `runserver` (the `PRESENCE_RUN_RUNNER` gate defaults to true), so local dev stays self-contained — no second process needed. Code edits trigger Django's autoreloader, which restarts the runner cleanly.
 
 ## Project layout
 
@@ -226,12 +260,14 @@ pyproject.toml          # uv-managed
 uv.lock
 Dockerfile
 docker-compose.yml
-entrypoint.sh           # migrate + idempotent createsuperuser + runserver
+entrypoint.sh           # per-role startup: web pre-steps + server / run_runner
+scripts/                # sqlite_to_postgres.sh one-time data migration
 .env.example
 presence_site/          # Django project (settings, urls)
 presence/               # The app
     models.py           # Presence model + window helpers (absolute and solar)
-    runner.py           # Background thread that flips state
+    runner.py           # State-machine loop (runner container or dev thread)
+    management/         # run_runner command (the runner container's process)
     views.py            # JSON API + presence/access-key web UI
     auth.py             # X-API-Key check against a presence's access key
     forms.py            # SignedDurationFormField (±HH:MM rendering)
@@ -241,8 +277,9 @@ presence/               # The app
 
 ## Caveats
 
-- The background runner is one **in-process** daemon thread. It is fine for `runserver` and a single-worker production setup, but multi-worker WSGI (e.g. `gunicorn -w 4`) would spawn one thread per worker and race on the same rows. For multi-worker deployments, factor the runner out into a separate process (e.g. a management command driven by `systemd`).
-- SQLite is the configured database. It is suitable for a few rows on a single host; switch to Postgres if you need anything more.
+- Exactly **one** runner process may drive the state machine per database. Docker Compose satisfies this with the dedicated `runner` container (the web container's in-process thread is gated off with `PRESENCE_RUN_RUNNER=false`); plain `runserver` satisfies it with one in-process thread. Never run both, or scale `runner` beyond one replica — the copies race on the same rows.
+- The web container stays **single-worker** because the rate limiter's in-process cache is only coherent within one process; a shared cache backend is the remaining prerequisite for multi-worker web.
+- Outside Docker (no `DJANGO_DB_HOST`) the database is a local SQLite file — fine for development; deployments get PostgreSQL via compose.
 - Solar windows depend on astral's built-in city database (~390 cities). Names are validated against that database when a row is saved.
 
 ## License
