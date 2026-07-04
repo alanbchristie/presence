@@ -213,6 +213,87 @@
     if (utcCaption) {
       utcCaption.textContent = utcFormatter.format(now) + " UTC";
     }
+    declutterLabels(); /* the new time text can change label widths */
+  }
+
+  /*
+   * Labels of nearby locations (e.g. London and Copenhagen) draw on top
+   * of each other, and a label near the map edge is clipped by the
+   * wrapper. After every reposition: clamp each visible label inside the
+   * wrapper horizontally, then lift colliding labels vertically so all
+   * stay readable. Southern markers are placed first and keep their
+   * natural spot; a colliding label further north stacks above it.
+   */
+  function rectanglesOverlap(a, b) {
+    return (
+      a.left < b.right &&
+      b.left < a.right &&
+      a.top < b.bottom &&
+      b.top < a.bottom
+    );
+  }
+
+  function declutterLabels() {
+    var wrapRect = wrap.getBoundingClientRect();
+    markers.forEach(function (marker) {
+      marker.label.style.transform = "";
+    });
+    var visible = markers.filter(function (marker) {
+      /* Markers panned out of the view keep their default (clipped)
+         labels; clamping those back inside would be wrong. Unpositioned
+         markers (before the first applyView) parse as NaN and are
+         skipped too. */
+      var xPercent = parseFloat(marker.anchor.style.left);
+      var yPercent = parseFloat(marker.anchor.style.top);
+      return xPercent >= 0 && xPercent <= 100 && yPercent >= 0 && yPercent <= 100;
+    });
+    visible.sort(function (a, b) {
+      return b.y - a.y;
+    });
+    var placed = [];
+    visible.forEach(function (marker) {
+      var measured = marker.label.getBoundingClientRect();
+      var shiftX = 0;
+      if (measured.left < wrapRect.left) {
+        shiftX = wrapRect.left - measured.left;
+      } else if (measured.right > wrapRect.right) {
+        shiftX = wrapRect.right - measured.right;
+      }
+      var rect = {
+        left: measured.left + shiftX,
+        right: measured.right + shiftX,
+        top: measured.top,
+        bottom: measured.bottom,
+      };
+      /* Lift until clear of every already-placed label. Bounded, since
+         a pathological pile-up must not spin the pointermove handler. */
+      var guard = 0;
+      var collided = true;
+      while (collided && guard < 20) {
+        collided = false;
+        guard += 1;
+        for (var i = 0; i < placed.length; i += 1) {
+          if (rectanglesOverlap(rect, placed[i])) {
+            var raiseBy = rect.bottom - placed[i].top + 2;
+            rect.top -= raiseBy;
+            rect.bottom -= raiseBy;
+            collided = true;
+          }
+        }
+      }
+      var lift = measured.top - rect.top;
+      if (shiftX || lift) {
+        /* Repeat the stylesheet's centering translateX(-50%): setting
+           style.transform replaces it, not composes with it. */
+        marker.label.style.transform =
+          "translateX(-50%) translate(" +
+          shiftX.toFixed(1) +
+          "px, -" +
+          lift.toFixed(1) +
+          "px)";
+      }
+      placed.push(rect);
+    });
   }
 
   function refreshShadow() {
@@ -279,6 +360,7 @@
     zoomInButton.disabled = view.w <= MIN_VIEW_WIDTH + 0.01;
     zoomOutButton.disabled = !zoomed;
     zoomResetButton.disabled = !zoomed;
+    declutterLabels();
   }
 
   /* Zoom by `factor`, keeping the map point (userX, userY) fixed. */
@@ -333,12 +415,94 @@
 
   var drag = null;
 
+  /* Swallow the click that follows a drag or pinch released over a
+     marker, so the gesture never navigates to a location page. The
+     click (if any) fires in the same input sequence as the pointerup,
+     so dropping the guard on the next tick cannot eat a later click. */
+  function swallowNextClick() {
+    var swallowClick = function (clickEvent) {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+    };
+    wrap.addEventListener("click", swallowClick, { capture: true });
+    setTimeout(function () {
+      wrap.removeEventListener("click", swallowClick, { capture: true });
+    }, 0);
+  }
+
+  /* --- pinch zoom (touch) -------------------------------------------- */
+
+  var touchPoints = {}; /* pointerId -> latest client coordinates */
+  var pinch = null;
+
+  function touchIds() {
+    return Object.keys(touchPoints);
+  }
+
+  function pinchGeometry() {
+    var ids = touchIds();
+    var a = touchPoints[ids[0]];
+    var b = touchPoints[ids[1]];
+    return {
+      /* || 1: two stacked fingers must not divide the scale by zero */
+      distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      midX: (a.x + b.x) / 2,
+      midY: (a.y + b.y) / 2,
+    };
+  }
+
+  function startPinch() {
+    var geometry = pinchGeometry();
+    var rect = svg.getBoundingClientRect();
+    pinch = {
+      startDistance: geometry.distance,
+      startWidth: view.w,
+      /* The map point under the fingers' midpoint stays under it as
+         both the zoom and the midpoint move — pinch pans too. */
+      anchorX: view.x + ((geometry.midX - rect.left) / rect.width) * view.w,
+      anchorY: view.y + ((geometry.midY - rect.top) / rect.height) * view.h,
+    };
+    drag = null;
+    wrap.classList.remove("map-dragging");
+    touchIds().forEach(function (id) {
+      wrap.setPointerCapture(Number(id));
+    });
+  }
+
+  function movePinch() {
+    var geometry = pinchGeometry();
+    var rect = svg.getBoundingClientRect();
+    view.w = Math.min(
+      MAP_WIDTH,
+      Math.max(
+        MIN_VIEW_WIDTH,
+        pinch.startWidth * (pinch.startDistance / geometry.distance)
+      )
+    );
+    view.h = view.w * (MAP_HEIGHT / MAP_WIDTH);
+    view.x = pinch.anchorX - ((geometry.midX - rect.left) / rect.width) * view.w;
+    view.y = pinch.anchorY - ((geometry.midY - rect.top) / rect.height) * view.h;
+    clampView();
+    applyView();
+  }
+
+  /* --- drag pan (mouse or single touch) ------------------------------ */
+
   wrap.addEventListener("pointerdown", function (event) {
-    if (
-      view.w >= MAP_WIDTH ||
-      event.button !== 0 ||
-      event.target.closest(".map-controls")
-    ) {
+    if (event.target.closest(".map-controls")) {
+      return;
+    }
+    if (event.pointerType === "touch") {
+      touchPoints[event.pointerId] = { x: event.clientX, y: event.clientY };
+      if (touchIds().length === 2) {
+        startPinch();
+        return;
+      }
+      if (touchIds().length > 2) {
+        return; /* extra fingers are ignored, not part of the pinch */
+      }
+    }
+    if (view.w >= MAP_WIDTH || event.button !== 0 || pinch) {
       return;
     }
     drag = {
@@ -355,6 +519,15 @@
   });
 
   wrap.addEventListener("pointermove", function (event) {
+    if (event.pointerType === "touch" && touchPoints[event.pointerId]) {
+      touchPoints[event.pointerId] = { x: event.clientX, y: event.clientY };
+      if (pinch) {
+        if (touchIds().length >= 2) {
+          movePinch();
+        }
+        return;
+      }
+    }
     if (!drag || event.pointerId !== drag.pointerId) {
       return;
     }
@@ -376,6 +549,16 @@
   });
 
   function endDrag(event) {
+    if (event.pointerType === "touch") {
+      delete touchPoints[event.pointerId];
+      if (pinch && touchIds().length < 2) {
+        /* Pinch over: don't fall back into a drag with the leftover
+           finger (its start point is unknown); a fresh touch pans. */
+        pinch = null;
+        swallowNextClick();
+        return;
+      }
+    }
     if (!drag || event.pointerId !== drag.pointerId) {
       return;
     }
@@ -383,18 +566,7 @@
     var moved = drag.moved;
     drag = null;
     if (moved) {
-      /* Swallow the click that follows a drag released over a marker,
-         so panning never navigates to a location page. The click (if
-         any) fires in the same input sequence as the pointerup, so
-         dropping the guard on the next tick cannot eat a later click. */
-      var swallowClick = function (clickEvent) {
-        clickEvent.preventDefault();
-        clickEvent.stopPropagation();
-      };
-      wrap.addEventListener("click", swallowClick, { capture: true });
-      setTimeout(function () {
-        wrap.removeEventListener("click", swallowClick, { capture: true });
-      }, 0);
+      swallowNextClick();
     }
   }
 
