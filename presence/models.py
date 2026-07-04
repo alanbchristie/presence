@@ -42,17 +42,57 @@ def validate_astral_city(value: str) -> None:
         )
 
 
-def parse_lat_lon(value: str) -> tuple[float, float]:
-    """Parse a decimal "lat,lon" pair, e.g. "51.520847,-0.195521".
+#: One coordinate: a decimal number, an optional degree symbol, and an
+#: optional hemisphere letter. A sign and a hemisphere letter both give
+#: the direction, so combining them is rejected in ``_parse_coordinate``.
+_COORDINATE_RE = re.compile(
+    r"^(?P<degrees>[+-]?\d+(?:\.\d+)?)\s*°?\s*(?P<hemisphere>[A-Za-z])?$"
+)
 
-    Whitespace around either number is tolerated. Raises ValueError when
-    the string is not two comma-separated decimals or either number is
-    outside its valid range (±90 latitude, ±180 longitude).
+
+def _parse_coordinate(text: str, hemispheres: str) -> float:
+    """Parse one latitude or longitude from its textual form.
+
+    Accepts a signed decimal ("-5.24036"), optionally with a degree
+    symbol, or an unsigned decimal with one of the ``hemispheres``
+    letters supplying the sign ("5.24036° W"). Raises ValueError for
+    anything else.
+    """
+    match = _COORDINATE_RE.match(text.strip())
+    if match is None:
+        raise ValueError(f"{text!r} is not a decimal coordinate")
+    degrees = float(match["degrees"])
+    hemisphere = (match["hemisphere"] or "").upper()
+    if hemisphere:
+        if hemisphere not in hemispheres:
+            raise ValueError(
+                f"{text!r} does not end with one of {'/'.join(hemispheres)}"
+            )
+        if match["degrees"][0] in "+-":
+            raise ValueError(
+                f"{text!r} has both a sign and a hemisphere letter"
+            )
+        if hemisphere in "SW":
+            degrees = -degrees
+    return degrees
+
+
+def parse_lat_lon(value: str) -> tuple[float, float]:
+    """Parse a comma-separated "lat,lon" pair into decimal degrees.
+
+    Each half is either a signed decimal ("51.520847,-0.195521") or
+    decimal degrees with a hemisphere letter ("36.35702° N, 5.24036° W");
+    the degree symbol is optional and S/W negate. Whitespace around
+    either number is tolerated. Raises ValueError when the string is not
+    two comma-separated coordinates, a sign and hemisphere letter are
+    combined, or either number is outside its valid range (±90 latitude,
+    ±180 longitude).
     """
     parts = (value or "").split(",")
     if len(parts) != 2:
         raise ValueError(f"{value!r} is not a 'lat,lon' pair")
-    latitude, longitude = (float(part.strip()) for part in parts)
+    latitude = _parse_coordinate(parts[0], "NS")
+    longitude = _parse_coordinate(parts[1], "EW")
     if not -90.0 <= latitude <= 90.0:
         raise ValueError(f"latitude {latitude} is outside ±90")
     if not -180.0 <= longitude <= 180.0:
@@ -80,8 +120,9 @@ def validate_lat_lon(value: str) -> None:
         parse_lat_lon(value)
     except ValueError:
         raise ValidationError(
-            f"{value!r} is not a decimal 'lat,lon' pair "
-            "(e.g. 51.520847,-0.195521)."
+            f"{value!r} is not a 'lat,lon' pair — use decimals "
+            "(e.g. 51.520847,-0.195521) or degrees with N/S/E/W "
+            "(e.g. 36.35702° N, 5.24036° W)."
         )
 
 
@@ -139,10 +180,12 @@ class Location(models.Model):
         default="",
         validators=[validate_lat_lon],
         help_text=(
-            "Optional decimal 'lat,lon' pair (e.g. 51.520847,-0.195521). "
-            "When set, the map places this location here instead of at its "
-            "city. The edit form also accepts a What3Words address "
-            "(///word.word.word), stored converted to lat/lon."
+            "Optional 'lat,lon' pair, as decimals (e.g. "
+            "51.520847,-0.195521) or degrees with N/S/E/W (e.g. "
+            "36.35702° N, 5.24036° W). When set, the map places this "
+            "location here instead of at its city. The edit form also "
+            "accepts a What3Words address (///word.word.word); all forms "
+            "are stored as the decimal pair."
         ),
     )
     created_at = models.DateTimeField(

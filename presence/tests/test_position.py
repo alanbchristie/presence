@@ -1,6 +1,8 @@
 """Tests for the optional Location ``position`` (issue #54).
 
-``position`` stores a decimal "lat,lon" pair. The Create/Edit form also
+``position`` stores a decimal "lat,lon" pair, entered as decimals
+("51.520847,-0.195521") or degrees with hemisphere letters
+("36.35702° N, 5.24036° W"). The Create/Edit form also
 accepts a What3Words address (``///filled.count.soap``), which the server
 converts to decimal lat/lon at validation time via the What3Words REST
 API — the stored value is always the decimal pair. When set, the map
@@ -48,6 +50,39 @@ def test_parse_lat_lon_allows_spaces():
     ],
 )
 def test_parse_lat_lon_rejects_malformed_or_out_of_range(value):
+    with pytest.raises(ValueError):
+        parse_lat_lon(value)
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        # decimal degrees with a hemisphere letter (the sign)
+        ("36.35702° N, 5.24036° W", (36.35702, -5.24036)),
+        ("36.35702° S, 5.24036° E", (-36.35702, 5.24036)),
+        # symbol and spacing are optional; letters are case-insensitive
+        ("36.35702N,5.24036W", (36.35702, -5.24036)),
+        ("36.35702 n , 5.24036 w", (36.35702, -5.24036)),
+        # a bare degree symbol on a signed decimal is tolerated too
+        ("51.520847°, -0.195521°", (51.520847, -0.195521)),
+    ],
+)
+def test_parse_lat_lon_accepts_degrees_with_hemisphere(value, expected):
+    assert parse_lat_lon(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "36.35702° E, 5.24036° W",  # E/W on the latitude
+        "36.35702° N, 5.24036° S",  # N/S on the longitude
+        "-36.35702° N, 5.24036° W",  # sign and hemisphere letter clash
+        "91° N, 0° E",  # still range-checked
+        "0° N, 181° W",
+        "36.35702° X, 5.24036° W",  # unknown hemisphere letter
+    ],
+)
+def test_parse_lat_lon_rejects_bad_hemisphere_input(value):
     with pytest.raises(ValueError):
         parse_lat_lon(value)
 
@@ -193,6 +228,12 @@ def test_form_accepts_and_normalizes_a_lat_lon_pair():
     form = LocationForm(data=_form_data(position=" 51.5 , -0.12 "))
     assert form.is_valid(), form.errors
     assert form.cleaned_data["position"] == "51.5,-0.12"
+
+
+def test_form_normalizes_degrees_with_hemisphere_to_decimal():
+    form = LocationForm(data=_form_data(position="36.35702° N, 5.24036° W"))
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["position"] == "36.35702,-5.24036"
 
 
 def test_form_allows_blank_position():
