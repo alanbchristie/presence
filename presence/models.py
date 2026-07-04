@@ -276,17 +276,6 @@ class Presence(models.Model):
                   "Leave blank when 'latest off relative to sunrise' is checked. "
                   "If <= earliest_on, the window wraps past midnight.",
     )
-    timezone = models.CharField(
-        max_length=64,
-        null=True,
-        blank=True,
-        default=None,
-        help_text=(
-            "Deprecated (issue #43): the timezone now lives on the presence's "
-            "Location and this field is no longer used."
-        ),
-    )
-
     earliest_on_relative_to_sunset = models.BooleanField(
         default=False,
         help_text="If set, the window opens at sunset + earliest_on_offset (offset may be negative).",
@@ -307,16 +296,6 @@ class Presence(models.Model):
         help_text="Signed offset from sunrise, e.g. 2:00:00 for two hours after sunrise. "
                   "Required when 'latest off relative to sunrise' is checked.",
     )
-    city = models.CharField(
-        max_length=64,
-        blank=True,
-        default="",
-        help_text=(
-            "Deprecated (issue #43): the city now lives on the presence's "
-            "Location and this field is no longer used."
-        ),
-    )
-
     current_state = models.CharField(
         max_length=3,
         choices=State.choices,

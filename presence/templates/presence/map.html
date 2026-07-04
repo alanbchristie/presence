@@ -13,6 +13,10 @@
     vector-effect: non-scaling-stroke;
   }
   .map-night { fill: #0e1a3c; opacity: 0.32; }
+  /* pan-y: one finger still scrolls the page over the unzoomed map, but
+     the browser leaves pinches (and, once zoomed, everything) to
+     worldmap.js. */
+  .map-wrap { touch-action: pan-y; }
   .map-zoomed { cursor: grab; touch-action: none; }
   .map-dragging { cursor: grabbing; }
   .map-dragging .map-marker { pointer-events: none; }
