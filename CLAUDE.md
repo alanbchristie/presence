@@ -25,7 +25,7 @@ non-blank `DJANGO_SECRET_KEY` is **required** (the app raises
 the shell. The test suite is unaffected: it uses `presence_site.settings_test`
 (set in `pyproject.toml`), which injects a throwaway key.
 
-Docker (full stack with persisted SQLite):
+Docker (full stack: `db` = PostgreSQL, `web`, `runner`):
 
 ```
 docker compose up -d --build                # plain HTTP on 127.0.0.1:8000
@@ -39,25 +39,42 @@ so the plain-HTTP app is not externally reachable under the TLS profile; set
 
 ## Architecture
 
-Single Django app (`presence/`) inside the `presence_site/` project. SQLite is
-the only configured database.
+Single Django app (`presence/`) inside the `presence_site/` project. The
+database is env-selected (`settings.resolve_databases`): PostgreSQL when
+`DJANGO_DB_HOST` is set (the docker-compose deployment, where `web` and
+`runner` share the `db` service), otherwise a local SQLite file
+(`PRESENCE_DB_PATH`), so non-docker dev and the test suite need no database
+server. Tests pin in-memory SQLite in `settings_test.py`.
 
-### The runner thread (most important invariant)
+### The runner (most important invariant)
 
-`presence/runner.py` runs **one in-process daemon thread per process**, started
-from `PresenceConfig.ready()` (`apps.py`). It loops over enabled `Presence`
-rows, flips their `current_state` between on/off, and persists
-`current_state` / `state_since` / `next_transition_at` so the admin shows live
-state.
+`presence/runner.py` drives the state machine: `run(stop_event=None)` loops
+over enabled `Presence` rows, flips their `current_state` between on/off, and
+persists `current_state` / `state_since` / `next_transition_at` so the admin
+shows live state. **Exactly one runner process may drive a given database.**
+It runs in one of two places:
 
-This design assumes **exactly one worker**. `entrypoint.sh` enforces it
-(`runserver --noreload`, or `gunicorn --workers 1`), and `runner._should_start()`
-further gates startup to long-running commands and the autoreloader child
-(`RUN_MAIN=true`) so management commands and the reloader parent don't spawn
-duplicate threads. Any change touching deployment, worker count, or the ASGI/WSGI
-entrypoint must preserve the single-runner invariant — otherwise multiple threads
-race on the same rows. Scaling out requires factoring the runner into its own
-process first.
+- **Dedicated `runner` container** (docker-compose default): `entrypoint.sh`
+  execs `manage.py run_runner` (`presence/management/commands/run_runner.py`),
+  which installs SIGTERM/SIGINT handlers that set the stop event, so
+  `docker stop` shuts it down cleanly. The web container sets
+  `PRESENCE_RUN_RUNNER=false` so it never also spawns the in-process thread.
+  Never scale `runner` beyond one replica.
+- **In-process daemon thread** (plain `runserver` local dev): started from
+  `PresenceConfig.ready()` (`apps.py`) via `runner.start()`, gated by
+  `PRESENCE_RUN_RUNNER` (default true) and `runner._should_start()` (long-
+  running commands and the autoreloader child, `RUN_MAIN=true`, only — so
+  management commands and the reloader parent don't spawn duplicate threads).
+
+The **web** container stays `--workers 1` regardless: the ratelimit cache
+(below) is in-process and only coherent within one worker. A shared cache
+backend is the remaining prerequisite for multi-worker web — do not loosen
+the worker count without it.
+
+Existing SQLite deployments migrate their data once via
+`scripts/sqlite_to_postgres.sh` (dump/load/counts; see README "Migrating
+from SQLite"). `migrate` has a single owner — the web entrypoint; the runner
+container deliberately skips it to avoid a concurrent-migrate race.
 
 State-machine rules live in `runner._evaluate()`. Two non-obvious behaviors that
 must be preserved when editing it:
@@ -104,8 +121,9 @@ An unknown identifier returns the **same** `403` as a known one with a bad key,
 so callers cannot enumerate which presences exist (do not reintroduce
 `get_object_or_404` here). Both the API and the login view rate-limit failed
 attempts per client IP via `presence/ratelimit.py` (in-process LocMemCache,
-which is coherent only under the single-worker invariant); exceeding the limit
-yields `429`. A successful auth clears the caller's counter.
+which is coherent only because the web container runs a single worker);
+exceeding the limit yields `429`. A successful auth clears the caller's
+counter. The runner container serves no HTTP and never touches this cache.
 
 ### Configuration is environment-driven
 
@@ -122,7 +140,8 @@ settings, follow the existing pattern: env var → settings.py → documented in
 
 - Work off `main` via a feature branch; open a PR (this repo does not commit
   directly to `main`).
-- `entrypoint.sh` runs migrations and an idempotent `createsuperuser` on boot —
-  schema changes ship as migrations, no manual DB steps in deploy docs.
+- `entrypoint.sh` runs migrations and an idempotent `createsuperuser` on boot
+  of the **web** roles (the runner role skips them) — schema changes ship as
+  migrations, no manual DB steps in deploy docs.
 - Use "conventional commits"
   

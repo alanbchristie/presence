@@ -16,6 +16,16 @@ os.environ.setdefault(
 
 from presence_site.settings import *  # noqa: E402,F401,F403
 
+# The suite always runs on in-memory SQLite, regardless of any DJANGO_DB_*
+# vars in the surrounding environment (e.g. a shell configured for the
+# docker-compose Postgres), so CI needs no database service.
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": ":memory:",
+    }
+}
+
 # The Django test client issues plain-HTTP requests, so SECURE_SSL_REDIRECT
 # (active because DEBUG is off) would turn every request into a 301. Relax just
 # that one flag for the suite; the redirect logic itself is covered by

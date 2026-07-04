@@ -1,4 +1,33 @@
+# Both app containers (web + runner) share the same PostgreSQL database.
+# The connection env is defined once here and merged into each service.
+# The password default is for the compose-internal network only (the db
+# publishes no host port); set PRESENCE_DB_PASSWORD in .env to override.
+x-db-env: &db-env
+  DJANGO_DB_HOST: db
+  DJANGO_DB_PORT: "5432"
+  DJANGO_DB_NAME: presence
+  DJANGO_DB_USER: presence
+  DJANGO_DB_PASSWORD: ${PRESENCE_DB_PASSWORD:-presence}
+
 services:
+  db:
+    image: postgres:17-alpine
+    container_name: presence-db
+    environment:
+      POSTGRES_DB: presence
+      POSTGRES_USER: presence
+      POSTGRES_PASSWORD: ${PRESENCE_DB_PASSWORD:-presence}
+    volumes:
+    - presence-db:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U presence -d presence
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -24,7 +53,7 @@ services:
     # PRESENCE_WEB_BIND=0.0.0.0 — but prefer the TLS profile instead.
     - "${PRESENCE_WEB_BIND:-127.0.0.1}:8000:8000"
     environment:
-      PRESENCE_DB_PATH: /data/db.sqlite3
+      <<: *db-env
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,[::1],${PRESENCE_DOMAIN:-}"
@@ -35,9 +64,53 @@ services:
       # skips creation otherwise), so there is no built-in admin/admin login.
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
       PRESENCE_SERVER: ${PRESENCE_SERVER:-runserver}
+      # The dedicated runner container owns the state-machine loop; the web
+      # container must not also spawn the in-process thread.
+      PRESENCE_RUN_RUNNER: "false"
       W3W_API_KEY: ${W3W_API_KEY:-}
-    volumes:
-    - presence-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # Passes only once the HTTP server accepts requests, i.e. after the
+      # entrypoint's migrate/collectstatic pre-steps have completed — the
+      # runner container waits on this so the schema exists before it
+      # starts. Any HTTP status below 500 counts (with DEBUG off the
+      # plain-HTTP probe gets a 301 to https, which is fine: the server is
+      # up). http.client does not follow redirects.
+      test:
+      - CMD
+      - python
+      - -c
+      - |
+        import http.client, sys
+        conn = http.client.HTTPConnection("127.0.0.1", 8000, timeout=5)
+        conn.request("GET", "/login/")
+        sys.exit(0 if conn.getresponse().status < 500 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  runner:
+    # Same image as web; entrypoint.sh switches on PRESENCE_SERVER=runner to
+    # exec `manage.py run_runner` — the state-machine loop as its own
+    # foreground process (issue #47). No published ports: it serves no HTTP.
+    image: alanbchristie/presence:${PRESENCE_TAG:-latest}
+    container_name: presence-runner
+    environment:
+      <<: *db-env
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
+      PRESENCE_SERVER: runner
+    depends_on:
+      db:
+        condition: service_healthy
+      # Wait for web to be healthy: its entrypoint owns `migrate`, so this
+      # guarantees the schema exists (and avoids a concurrent-migrate race).
+      web:
+        condition: service_healthy
     restart: unless-stopped
 
   caddy:
@@ -61,6 +134,6 @@ services:
     - web
 
 volumes:
-  presence-data:
+  presence-db:
   caddy-data:
   caddy-config:
