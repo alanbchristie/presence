@@ -26,17 +26,28 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         stop_event = threading.Event()
+        received_signals: list[int] = []
 
+        # The handler only records and sets the event: anything more (I/O,
+        # logging) is unsafe in a signal handler. Reporting happens after
+        # run() returns.
         def handle_stop_signal(signum, frame):
-            logger.info(
-                "presence runner received signal %s; stopping",
-                signal.Signals(signum).name,
-            )
+            received_signals.append(signum)
             stop_event.set()
 
         signal.signal(signal.SIGTERM, handle_stop_signal)
         signal.signal(signal.SIGINT, handle_stop_signal)
 
+        # Lifecycle goes to stdout as well as the logger: with DEBUG off
+        # Django's default logging drops INFO from non-django loggers, and
+        # `docker compose logs runner` must still show a clean start/stop.
+        self.stdout.write("presence runner loop starting")
         logger.info("presence runner loop starting")
+
         runner.run(stop_event)
-        logger.info("presence runner loop stopped")
+
+        names = ", ".join(
+            signal.Signals(signum).name for signum in received_signals
+        )
+        self.stdout.write(f"presence runner loop stopped ({names})")
+        logger.info("presence runner loop stopped (%s)", names)
