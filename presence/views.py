@@ -332,16 +332,60 @@ def access_key_regenerate(request, pk: int):
 # --- world map -------------------------------------------------------------
 
 
+def _local_transition(dt: datetime | None, now: datetime, zone: ZoneInfo) -> str | None:
+    """Render a transition instant for the marker tooltip, in `zone`.
+
+    "HH:MM" when the transition falls on today's date in that zone,
+    "Day HH:MM" (abbreviated weekday) otherwise, None when unscheduled.
+    """
+    if dt is None:
+        return None
+    local = dt.astimezone(zone)
+    if local.date() == now.astimezone(zone).date():
+        return local.strftime("%H:%M")
+    return local.strftime("%a %H:%M")
+
+
+def _presence_detail(presence: Presence, now: datetime, zone: ZoneInfo) -> dict:
+    """One tooltip line's worth of state for a single presence.
+
+    Answers "why is that light off right now?": the live state, whether the
+    presence is currently inside its active window, and when the runner will
+    next flip it (in the location's timezone). A disabled presence is skipped
+    by the runner, so its stored next transition is stale and reported as
+    None rather than as a bogus prediction.
+    """
+    if not presence.enabled:
+        return {
+            "name": presence.name,
+            "state": "disabled",
+            "in_window": None,
+            "next_transition": None,
+        }
+    return {
+        "name": presence.name,
+        "state": presence.current_state,
+        "in_window": presence.is_in_window(now),
+        "next_transition": _local_transition(presence.next_transition_at, now, zone),
+    }
+
+
 def _location_status(location: Location) -> dict:
     """Aggregate the states of a location's presences for its map marker.
 
     "on" when any enabled presence is on, else "off" when any enabled
     presence exists, else "disabled" (all disabled, or no presences at
     all) — mirroring the status badges on the presence list. The counts
-    feed the marker tooltip.
+    feed the marker tooltip; "presences" carries the per-presence window
+    detail (issue #52) shown beneath them.
     """
+    now = timezone.now()
+    zone = ZoneInfo(location.timezone)
     on_count = off_count = disabled_count = 0
-    for presence in location.presences.all():
+    # Sorted in Python so the prefetched cache is reused (an order_by here
+    # would issue one query per location).
+    presences = sorted(location.presences.all(), key=lambda p: p.name.casefold())
+    for presence in presences:
         if not presence.enabled:
             disabled_count += 1
         elif presence.current_state == Presence.State.ON:
@@ -360,6 +404,9 @@ def _location_status(location: Location) -> dict:
         "on_count": on_count,
         "off_count": off_count,
         "disabled_count": disabled_count,
+        "presences": [
+            _presence_detail(presence, now, zone) for presence in presences
+        ],
     }
 
 

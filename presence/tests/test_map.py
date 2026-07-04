@@ -7,8 +7,12 @@ separately. The night-shadow rendering itself is client-side JavaScript,
 so these tests cover the view contract: authentication, the plotted
 location payload, and the unplottable list.
 """
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
 from presence.models import Location
 
@@ -259,5 +263,195 @@ def test_map_status_matches_page_aggregation(client, django_user_model, make_pre
         for entry in client.get(reverse("map_status")).json()["locations"]
     }[office.pk]
 
-    for key in ("status", "on_count", "off_count", "disabled_count"):
+    for key in ("status", "on_count", "off_count", "disabled_count", "presences"):
         assert api_entry[key] == page_entry[key]
+
+
+# --- per-presence window detail (issue #52) ---------------------------------
+#
+# The marker tooltip answers "why is that light off right now?", so each
+# location entry carries a per-presence detail list: live state, whether the
+# presence is currently inside its active window, and the next transition
+# time rendered in the location's timezone (day-prefixed when not today).
+
+
+def _window_containing_now() -> dict:
+    """Absolute UTC window edges guaranteed to contain the current time."""
+    now = timezone.now()
+    return {
+        "earliest_on": (now - timedelta(hours=2)).time(),
+        "latest_off": (now + timedelta(hours=2)).time(),
+    }
+
+
+def _window_excluding_now() -> dict:
+    """Absolute UTC window edges guaranteed not to contain the current time."""
+    now = timezone.now()
+    return {
+        "earliest_on": (now + timedelta(hours=1)).time(),
+        "latest_off": (now + timedelta(hours=2)).time(),
+    }
+
+
+def test_map_marker_details_presence_on_inside_window(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(name="Office", timezone="UTC", city="London")
+    now = timezone.now()
+    make_presence(
+        identifier="lamp",
+        name="Lamp",
+        location=office,
+        enabled=True,
+        current_state="on",
+        next_transition_at=now,
+        **_window_containing_now(),
+    ).save()
+
+    entry = client.get(reverse("map")).context["plotted"][0]
+
+    (detail,) = entry["presences"]
+    assert detail["name"] == "Lamp"
+    assert detail["state"] == "on"
+    assert detail["in_window"] is True
+    assert detail["next_transition"] == now.astimezone(
+        ZoneInfo("UTC")
+    ).strftime("%H:%M")
+
+
+def test_map_marker_details_presence_off_outside_window(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(name="Office", timezone="UTC", city="London")
+    make_presence(
+        identifier="lamp",
+        name="Lamp",
+        location=office,
+        enabled=True,
+        current_state="off",
+        next_transition_at=None,
+        **_window_excluding_now(),
+    ).save()
+
+    (detail,) = client.get(reverse("map")).context["plotted"][0]["presences"]
+
+    assert detail["state"] == "off"
+    assert detail["in_window"] is False
+    assert detail["next_transition"] is None
+
+
+def test_map_marker_details_disabled_presence_has_no_window_detail(
+    client, django_user_model, make_presence
+):
+    # The runner skips disabled rows, so their stored next transition is
+    # stale; the detail reports plain "disabled" with no window claims.
+    _login(client, django_user_model)
+    office = Location.objects.create(name="Office", timezone="UTC", city="London")
+    make_presence(
+        identifier="lamp",
+        name="Lamp",
+        location=office,
+        enabled=False,
+        current_state="on",
+        next_transition_at=timezone.now(),
+    ).save()
+
+    (detail,) = client.get(reverse("map")).context["plotted"][0]["presences"]
+
+    assert detail["state"] == "disabled"
+    assert detail["in_window"] is None
+    assert detail["next_transition"] is None
+
+
+def test_map_marker_next_transition_renders_in_location_timezone(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(
+        name="Office", timezone="Pacific/Auckland", city="Wellington"
+    )
+    now = timezone.now()
+    make_presence(
+        identifier="lamp",
+        name="Lamp",
+        location=office,
+        enabled=True,
+        current_state="on",
+        next_transition_at=now,
+        **_window_containing_now(),
+    ).save()
+
+    (detail,) = client.get(reverse("map")).context["plotted"][0]["presences"]
+
+    # "now" rendered in the location's zone is always "today" there, so no
+    # day prefix; and Pacific/Auckland sits a whole number of hours from
+    # UTC, so the local rendering can never coincide with the UTC one.
+    local = now.astimezone(ZoneInfo("Pacific/Auckland"))
+    assert detail["next_transition"] == local.strftime("%H:%M")
+    assert detail["next_transition"] != now.astimezone(ZoneInfo("UTC")).strftime(
+        "%H:%M"
+    )
+
+
+def test_map_marker_next_transition_shows_day_when_not_today(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(name="Office", timezone="UTC", city="London")
+    transition = timezone.now() + timedelta(days=3)
+    make_presence(
+        identifier="lamp",
+        name="Lamp",
+        location=office,
+        enabled=True,
+        current_state="off",
+        next_transition_at=transition,
+        **_window_containing_now(),
+    ).save()
+
+    (detail,) = client.get(reverse("map")).context["plotted"][0]["presences"]
+
+    local = transition.astimezone(ZoneInfo("UTC"))
+    assert detail["next_transition"] == local.strftime("%a %H:%M")
+
+
+def test_map_marker_details_ordered_by_presence_name(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(name="Office", timezone="UTC", city="London")
+    make_presence(
+        identifier="z", name="Zebra lamp", location=office, enabled=True
+    ).save()
+    make_presence(
+        identifier="a", name="attic light", location=office, enabled=True
+    ).save()
+
+    details = client.get(reverse("map")).context["plotted"][0]["presences"]
+
+    assert [detail["name"] for detail in details] == ["attic light", "Zebra lamp"]
+
+
+def test_map_status_carries_presence_details(
+    client, django_user_model, make_presence
+):
+    _login(client, django_user_model)
+    office = Location.objects.create(name="Office", timezone="UTC", city="London")
+    make_presence(
+        identifier="lamp",
+        name="Lamp",
+        location=office,
+        enabled=True,
+        current_state="on",
+        **_window_containing_now(),
+    ).save()
+
+    payload = client.get(reverse("map_status")).json()
+
+    entry = {e["id"]: e for e in payload["locations"]}[office.pk]
+    (detail,) = entry["presences"]
+    assert detail["name"] == "Lamp"
+    assert detail["state"] == "on"
+    assert detail["in_window"] is True

@@ -136,14 +136,40 @@
     return parts.join(" · ");
   }
 
+  /* One tooltip line per presence, e.g. "Lamp: off · outside window ·
+     on at Sat 19:12" — answering "why is that light off?" directly from
+     the map. Times arrive from the server already rendered in the
+     location's timezone. */
+  function presenceLine(detail) {
+    if (detail.state === "disabled") {
+      return detail.name + ": disabled";
+    }
+    var line = detail.name + ": " + detail.state;
+    if (detail.state === "off" && !detail.in_window) {
+      line += " · outside window";
+    }
+    if (detail.next_transition) {
+      line +=
+        " · " +
+        (detail.state === "on" ? "off at " : "on at ") +
+        detail.next_transition;
+    }
+    return line;
+  }
+
   function applyStatus(marker, entry) {
     marker.dot.className = "map-marker-dot status-" + entry.status;
     var summary = presenceSummary(entry);
-    marker.anchor.title =
+    var lines = [
       marker.city +
-      " · " +
-      marker.timezone +
-      (summary ? " — " + summary : " — no presences");
+        " · " +
+        marker.timezone +
+        (summary ? " — " + summary : " — no presences"),
+    ];
+    entry.presences.forEach(function (detail) {
+      lines.push(presenceLine(detail));
+    });
+    marker.anchor.title = lines.join("\n");
   }
 
   var markersById = {};
