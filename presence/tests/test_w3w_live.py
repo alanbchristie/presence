@@ -51,31 +51,47 @@ def _configure_key(settings):
     settings.W3W_API_KEY = W3W_API_KEY
 
 
+def _convert(words: str) -> tuple[float, float]:
+    """Call the real converter, skipping on account-side refusals.
+
+    A key can authenticate yet still be refused — monthly quota spent, or
+    a plan without convert-to-coordinates access. That is a property of
+    the account, not of this code, so it must not fail the build; skip
+    with the API's explanation instead. Anything else propagates.
+    """
+    try:
+        return what3words.convert_to_coordinates(words)
+    except what3words.What3WordsError as error:
+        message = str(error)
+        if "Quota" in message or "plan" in message:
+            pytest.skip(f"W3W account cannot convert: {message}")
+        raise
+
+
 def test_convert_documented_example():
-    latitude, longitude = what3words.convert_to_coordinates(
-        "///filled.count.soap"
-    )
+    latitude, longitude = _convert("///filled.count.soap")
 
     assert latitude == pytest.approx(51.520847, abs=1e-4)
     assert longitude == pytest.approx(-0.195521, abs=1e-4)
 
 
 def test_convert_accepts_bare_words():
-    latitude, longitude = what3words.convert_to_coordinates(
-        "filled.count.soap"
-    )
+    latitude, longitude = _convert("filled.count.soap")
 
     assert latitude == pytest.approx(51.520847, abs=1e-4)
 
 
 def test_convert_rejects_unknown_words():
     # Letter runs that are not in the What3Words wordlist: the API answers
-    # 400 BadWords, surfaced as a user-presentable What3WordsError.
+    # 400 BadWords, surfaced as a user-presentable What3WordsError. Going
+    # through _convert keeps quota/plan refusals a skip here too.
     with pytest.raises(what3words.What3WordsError):
-        what3words.convert_to_coordinates("///aaaaaaaa.bbbbbbbb.cccccccc")
+        _convert("///aaaaaaaa.bbbbbbbb.cccccccc")
 
 
 def test_form_stores_the_decimal_pair_for_a_w3w_address():
+    _convert("///filled.count.soap")  # skip early on quota/plan refusals
+
     form = LocationForm(
         data={
             "name": "W3W Live",
