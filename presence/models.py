@@ -106,6 +106,23 @@ class Location(models.Model):
         return self.name
 
     @property
+    def coordinates(self) -> tuple[float, float] | None:
+        """The ``(latitude, longitude)`` of this location's city, or None.
+
+        Resolved through astral's built-in city database (the same source
+        the solar window computation uses). None when no city is set, or
+        — defensively, since ``city`` is validated on save — when the
+        stored value is unknown to astral.
+        """
+        if not self.city:
+            return None
+        try:
+            city = lookup(self.city, database())
+        except KeyError:
+            return None
+        return (city.latitude, city.longitude)
+
+    @property
     def in_use(self) -> bool:
         """True when at least one presence belongs to this location."""
         return self.presences.exists()

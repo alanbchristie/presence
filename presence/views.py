@@ -7,6 +7,7 @@ from django.contrib.auth.views import LoginView
 from django.forms import model_to_dict
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -326,6 +327,45 @@ def access_key_regenerate(request, pk: int):
         f"update any callers now.",
     )
     return redirect("access_key_detail", pk=key.pk)
+
+
+# --- world map -------------------------------------------------------------
+
+
+@login_required
+@require_GET
+def world_map(request):
+    """World atlas with a live day/night shadow and one marker per location.
+
+    Markers are placed via the latitude/longitude of each location's astral
+    ``city`` (the same database the solar windows use), so locations without
+    a city cannot be plotted and are listed separately instead. The night
+    shadow and the per-location local-time labels are computed client-side
+    (static/presence/js/worldmap.js) from the payload rendered here.
+    """
+    plotted = []
+    unplottable = []
+    for location in Location.objects.order_by("name"):
+        coordinates = location.coordinates
+        if coordinates is None:
+            unplottable.append(location)
+            continue
+        latitude, longitude = coordinates
+        plotted.append(
+            {
+                "name": location.name,
+                "city": location.city,
+                "timezone": location.timezone,
+                "latitude": latitude,
+                "longitude": longitude,
+                "url": reverse("location_detail", args=[location.pk]),
+            }
+        )
+    return render(
+        request,
+        "presence/map.html",
+        {"plotted": plotted, "unplottable": unplottable},
+    )
 
 
 # --- location management -------------------------------------------------
