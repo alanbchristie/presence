@@ -6,8 +6,17 @@
 {% block extra_head %}
 <style>
   .map-wrap svg { display: block; width: 100%; height: auto; }
-  .map-land { fill: #b8d4f1; stroke: #ffffff; stroke-width: 0.4; }
+  .map-land {
+    fill: #b8d4f1;
+    stroke: #ffffff;
+    stroke-width: 0.4;
+    vector-effect: non-scaling-stroke;
+  }
   .map-night { fill: #0e1a3c; opacity: 0.32; }
+  .map-zoomed { cursor: grab; touch-action: none; }
+  .map-dragging { cursor: grabbing; }
+  .map-dragging .map-marker { pointer-events: none; }
+  .map-controls { z-index: 10; }
   .map-marker {
     position: absolute;
     transform: translate(-50%, -50%);
@@ -65,6 +74,15 @@
     <path id="night-shadow" class="map-night" d="" filter="url(#map-soften)"/>
   </svg>
   {# Location markers are injected here by worldmap.js #}
+  <div class="map-controls btn-group-vertical position-absolute top-0 end-0 m-2"
+       role="group" aria-label="Map zoom">
+    <button type="button" id="map-zoom-in" class="btn btn-light btn-sm fw-bold"
+            aria-label="Zoom in">+</button>
+    <button type="button" id="map-zoom-out" class="btn btn-light btn-sm fw-bold"
+            aria-label="Zoom out">&minus;</button>
+    <button type="button" id="map-zoom-reset" class="btn btn-light btn-sm"
+            aria-label="Reset zoom">&#10530;</button>
+  </div>
 </div>
 
 {% if unplottable %}

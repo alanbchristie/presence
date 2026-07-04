@@ -5,7 +5,10 @@
  *
  * The subsolar point comes from the standard NOAA low-accuracy solar
  * position formulas (a fraction of a degree of error — invisible at this
- * map scale). No dependencies.
+ * map scale). Zooming works by shrinking the SVG viewBox (so coastlines
+ * stay vector-crisp) and repositioning the HTML markers relative to the
+ * visible window (so labels keep a constant on-screen size). No
+ * dependencies.
  */
 (function () {
   "use strict";
@@ -13,6 +16,7 @@
   var RAD = Math.PI / 180;
   var MAP_WIDTH = 1000;
   var MAP_HEIGHT = 500;
+  var MIN_VIEW_WIDTH = MAP_WIDTH / 8; /* max zoom: 8x */
 
   function projectX(longitude) {
     return ((longitude + 180) / 360) * MAP_WIDTH;
@@ -86,8 +90,12 @@
   }
 
   var wrap = document.getElementById("map-wrap");
+  var svg = wrap.querySelector("svg");
   var shadow = document.getElementById("night-shadow");
   var utcCaption = document.getElementById("map-utc");
+  var zoomInButton = document.getElementById("map-zoom-in");
+  var zoomOutButton = document.getElementById("map-zoom-out");
+  var zoomResetButton = document.getElementById("map-zoom-reset");
   var locations = JSON.parse(
     document.getElementById("map-locations").textContent
   );
@@ -117,10 +125,6 @@
     var anchor = document.createElement("a");
     anchor.className = "map-marker";
     anchor.href = location.url;
-    anchor.style.left =
-      (((location.longitude + 180) / 360) * 100).toFixed(2) + "%";
-    anchor.style.top =
-      (((90 - location.latitude) / 180) * 100).toFixed(2) + "%";
     anchor.title = location.city + " · " + location.timezone;
 
     var label = document.createElement("span");
@@ -133,7 +137,10 @@
 
     return {
       name: location.name,
+      x: projectX(location.longitude),
+      y: projectY(location.latitude),
       formatter: timeFormatter(location.timezone),
+      anchor: anchor,
       label: label,
     };
   });
@@ -154,8 +161,164 @@
     shadow.setAttribute("d", nightPathData(new Date()));
   }
 
+  /* --- zoom & pan --------------------------------------------------- */
+
+  var view = { x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT };
+
+  function clampView() {
+    view.w = Math.min(MAP_WIDTH, Math.max(MIN_VIEW_WIDTH, view.w));
+    view.h = view.w * (MAP_HEIGHT / MAP_WIDTH);
+    view.x = Math.min(MAP_WIDTH - view.w, Math.max(0, view.x));
+    view.y = Math.min(MAP_HEIGHT - view.h, Math.max(0, view.y));
+  }
+
+  function applyView() {
+    svg.setAttribute(
+      "viewBox",
+      view.x.toFixed(2) +
+        " " +
+        view.y.toFixed(2) +
+        " " +
+        view.w.toFixed(2) +
+        " " +
+        view.h.toFixed(2)
+    );
+    markers.forEach(function (marker) {
+      marker.anchor.style.left =
+        (((marker.x - view.x) / view.w) * 100).toFixed(3) + "%";
+      marker.anchor.style.top =
+        (((marker.y - view.y) / view.h) * 100).toFixed(3) + "%";
+    });
+    var zoomed = view.w < MAP_WIDTH - 0.01;
+    wrap.classList.toggle("map-zoomed", zoomed);
+    zoomInButton.disabled = view.w <= MIN_VIEW_WIDTH + 0.01;
+    zoomOutButton.disabled = !zoomed;
+    zoomResetButton.disabled = !zoomed;
+  }
+
+  /* Zoom by `factor`, keeping the map point (userX, userY) fixed. */
+  function zoomAt(factor, userX, userY) {
+    var newWidth = Math.min(
+      MAP_WIDTH,
+      Math.max(MIN_VIEW_WIDTH, view.w / factor)
+    );
+    var scale = newWidth / view.w;
+    view.x = userX - (userX - view.x) * scale;
+    view.y = userY - (userY - view.y) * scale;
+    view.w = newWidth;
+    clampView();
+    applyView();
+  }
+
+  /* The map point currently under a mouse/pointer event. */
+  function eventUserPoint(event) {
+    var rect = svg.getBoundingClientRect();
+    return {
+      x: view.x + ((event.clientX - rect.left) / rect.width) * view.w,
+      y: view.y + ((event.clientY - rect.top) / rect.height) * view.h,
+    };
+  }
+
+  zoomInButton.addEventListener("click", function () {
+    zoomAt(1.5, view.x + view.w / 2, view.y + view.h / 2);
+  });
+  zoomOutButton.addEventListener("click", function () {
+    zoomAt(1 / 1.5, view.x + view.w / 2, view.y + view.h / 2);
+  });
+  zoomResetButton.addEventListener("click", function () {
+    view = { x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT };
+    applyView();
+  });
+
+  wrap.addEventListener(
+    "wheel",
+    function (event) {
+      event.preventDefault();
+      var point = eventUserPoint(event);
+      zoomAt(Math.pow(2, -event.deltaY / 300), point.x, point.y);
+    },
+    { passive: false }
+  );
+
+  wrap.addEventListener("dblclick", function (event) {
+    event.preventDefault();
+    var point = eventUserPoint(event);
+    zoomAt(2, point.x, point.y);
+  });
+
+  var drag = null;
+
+  wrap.addEventListener("pointerdown", function (event) {
+    if (
+      view.w >= MAP_WIDTH ||
+      event.button !== 0 ||
+      event.target.closest(".map-controls")
+    ) {
+      return;
+    }
+    drag = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startViewX: view.x,
+      startViewY: view.y,
+      moved: false,
+    };
+    /* Capturing here would retarget the pointerup — and therefore the
+       click — to the wrapper, breaking plain clicks on markers and the
+       zoom buttons. Capture only once real movement starts (below). */
+  });
+
+  wrap.addEventListener("pointermove", function (event) {
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    var rect = svg.getBoundingClientRect();
+    var deltaX = event.clientX - drag.startClientX;
+    var deltaY = event.clientY - drag.startClientY;
+    if (!drag.moved && Math.abs(deltaX) + Math.abs(deltaY) > 3) {
+      drag.moved = true;
+      wrap.classList.add("map-dragging");
+      wrap.setPointerCapture(event.pointerId);
+    }
+    if (!drag.moved) {
+      return;
+    }
+    view.x = drag.startViewX - (deltaX / rect.width) * view.w;
+    view.y = drag.startViewY - (deltaY / rect.height) * view.h;
+    clampView();
+    applyView();
+  });
+
+  function endDrag(event) {
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    wrap.classList.remove("map-dragging");
+    var moved = drag.moved;
+    drag = null;
+    if (moved) {
+      /* Swallow the click that follows a drag released over a marker,
+         so panning never navigates to a location page. The click (if
+         any) fires in the same input sequence as the pointerup, so
+         dropping the guard on the next tick cannot eat a later click. */
+      var swallowClick = function (clickEvent) {
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+      };
+      wrap.addEventListener("click", swallowClick, { capture: true });
+      setTimeout(function () {
+        wrap.removeEventListener("click", swallowClick, { capture: true });
+      }, 0);
+    }
+  }
+
+  wrap.addEventListener("pointerup", endDrag);
+  wrap.addEventListener("pointercancel", endDrag);
+
   refreshTimes();
   refreshShadow();
+  applyView();
   setInterval(refreshTimes, 30000);
   setInterval(refreshShadow, 60000);
 })();
