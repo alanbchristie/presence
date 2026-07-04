@@ -7,6 +7,7 @@ from django.contrib.auth.views import LoginView
 from django.forms import model_to_dict
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -326,6 +327,69 @@ def access_key_regenerate(request, pk: int):
         f"update any callers now.",
     )
     return redirect("access_key_detail", pk=key.pk)
+
+
+# --- world map -------------------------------------------------------------
+
+
+@login_required
+@require_GET
+def world_map(request):
+    """World atlas with a live day/night shadow and one marker per location.
+
+    Markers are placed via the latitude/longitude of each location's astral
+    ``city`` (the same database the solar windows use), so locations without
+    a city cannot be plotted and are listed separately instead. The night
+    shadow and the per-location local-time labels are computed client-side
+    (static/presence/js/worldmap.js) from the payload rendered here.
+
+    Each marker's dot is coloured by the aggregate state of the presences
+    at that location: "on" when any enabled presence is on, else "off"
+    when any enabled presence exists, else "disabled" (all disabled, or no
+    presences at all). The counts are exposed for the marker tooltip. The
+    states are as of page load; the page does not poll for changes.
+    """
+    plotted = []
+    unplottable = []
+    for location in Location.objects.order_by("name").prefetch_related("presences"):
+        coordinates = location.coordinates
+        if coordinates is None:
+            unplottable.append(location)
+            continue
+        latitude, longitude = coordinates
+        on_count = off_count = disabled_count = 0
+        for presence in location.presences.all():
+            if not presence.enabled:
+                disabled_count += 1
+            elif presence.current_state == Presence.State.ON:
+                on_count += 1
+            else:
+                off_count += 1
+        if on_count:
+            status = "on"
+        elif off_count:
+            status = "off"
+        else:
+            status = "disabled"
+        plotted.append(
+            {
+                "name": location.name,
+                "city": location.city,
+                "timezone": location.timezone,
+                "latitude": latitude,
+                "longitude": longitude,
+                "url": reverse("location_detail", args=[location.pk]),
+                "status": status,
+                "on_count": on_count,
+                "off_count": off_count,
+                "disabled_count": disabled_count,
+            }
+        )
+    return render(
+        request,
+        "presence/map.html",
+        {"plotted": plotted, "unplottable": unplottable},
+    )
 
 
 # --- location management -------------------------------------------------
