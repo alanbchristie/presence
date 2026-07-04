@@ -1,8 +1,16 @@
 """Background driver that flips Presence rows between on/off.
 
-A single daemon thread is started once per process from PresenceConfig.ready().
-This is fine for `runserver` / a single-worker dev setup; under multi-worker
-gunicorn each worker would spawn its own thread and race on the same rows.
+The loop runs in exactly one place per deployment (issue #47):
+
+- **Dedicated runner container** (the docker-compose default): the
+  ``run_runner`` management command calls :func:`run` in the foreground
+  with a stop event so SIGTERM shuts it down cleanly. The web container
+  sets ``PRESENCE_RUN_RUNNER=false`` so it never also spawns the thread.
+- **In-process daemon thread** (plain ``runserver`` local dev): started
+  once per process from ``PresenceConfig.ready()`` via :func:`start`, as
+  before. This is fine for a single-worker dev setup; under multi-worker
+  gunicorn each worker would spawn its own thread and race on the same
+  rows — which is why deployments use the dedicated container instead.
 """
 from __future__ import annotations
 
@@ -31,12 +39,30 @@ def start() -> None:
     with _start_lock:
         if _started:
             return
+        if not _runner_enabled():
+            logger.info(
+                "presence runner thread disabled (PRESENCE_RUN_RUNNER)"
+            )
+            return
         if not _should_start():
             return
         _started = True
         thread = threading.Thread(target=_loop, name="presence-runner", daemon=True)
         thread.start()
         logger.info("presence runner thread started")
+
+
+def _runner_enabled() -> bool:
+    """Gate for the in-process thread, default on.
+
+    The web container sets PRESENCE_RUN_RUNNER=false because the dedicated
+    runner container owns the loop there; local `runserver` keeps the
+    default so dev stays self-contained.
+    """
+    raw = os.environ.get("PRESENCE_RUN_RUNNER")
+    if raw is None:
+        return True
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _should_start() -> bool:
@@ -57,9 +83,21 @@ def _should_start() -> bool:
 
 
 def _loop() -> None:
+    run()
+
+
+def run(stop_event: threading.Event | None = None) -> None:
+    """Drive the state machine until ``stop_event`` is set (forever if None).
+
+    The thread path passes no event and sleeps uninterruptibly, as before.
+    The ``run_runner`` management command passes an event set by its
+    SIGTERM/SIGINT handlers; the between-tick sleep then becomes
+    ``stop_event.wait``, so shutdown is prompt instead of waiting out a
+    sleep of up to _MAX_SLEEP_SECONDS.
+    """
     from .models import Presence
 
-    while True:
+    while stop_event is None or not stop_event.is_set():
         try:
             now = timezone.now()
             rows = list(Presence.objects.filter(enabled=True))
@@ -71,7 +109,10 @@ def _loop() -> None:
             sleep_for = _MAX_SLEEP_SECONDS
         finally:
             connection.close()
-        time_module.sleep(sleep_for)
+        if stop_event is None:
+            time_module.sleep(sleep_for)
+        elif stop_event.wait(sleep_for):
+            break
 
 
 def _evaluate(row, now) -> None:
