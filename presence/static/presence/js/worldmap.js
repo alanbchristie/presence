@@ -465,7 +465,15 @@
     drag = null;
     wrap.classList.remove("map-dragging");
     touchIds().forEach(function (id) {
-      wrap.setPointerCapture(Number(id));
+      /* Capture keeps fast-moving fingers delivering events after they
+         leave the wrapper. It can only fail for a pointer that is no
+         longer active — then there is nothing to capture and the pinch
+         still works from bubbled events, so don't abort the gesture. */
+      try {
+        wrap.setPointerCapture(Number(id));
+      } catch (error) {
+        console.warn("presence map:", error);
+      }
     });
   }
 
