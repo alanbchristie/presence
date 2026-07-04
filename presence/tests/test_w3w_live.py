@@ -13,6 +13,7 @@ The three-word address exercised is What3Words' own documented example
 stable.
 """
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,24 @@ import pytest
 from presence import what3words
 from presence.forms import LocationForm
 from presence.models import parse_lat_lon
+
+#: Minimum spacing between live API calls, so a burst of tests cannot
+#: trip a per-second rate limit on the account's plan. (No spacing can
+#: help with a spent monthly quota — those refusals skip, see _convert.)
+CALL_SPACING_SECONDS = 1.0
+
+_last_call_at = 0.0
+
+
+def _spaced_call(function, *args):
+    global _last_call_at
+    wait = _last_call_at + CALL_SPACING_SECONDS - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        return function(*args)
+    finally:
+        _last_call_at = time.monotonic()
 
 
 def _key_from_dotenv() -> str:
@@ -60,7 +79,7 @@ def _convert(words: str) -> tuple[float, float]:
     with the API's explanation instead. Anything else propagates.
     """
     try:
-        return what3words.convert_to_coordinates(words)
+        return _spaced_call(what3words.convert_to_coordinates, words)
     except what3words.What3WordsError as error:
         message = str(error)
         if "Quota" in message or "plan" in message:
@@ -101,7 +120,8 @@ def test_form_stores_the_decimal_pair_for_a_w3w_address():
         }
     )
 
-    assert form.is_valid(), form.errors
+    # Validation converts through the API, so it gets the same spacing.
+    assert _spaced_call(form.is_valid), form.errors
     latitude, longitude = parse_lat_lon(form.cleaned_data["position"])
     assert latitude == pytest.approx(51.520847, abs=1e-4)
     assert longitude == pytest.approx(-0.195521, abs=1e-4)
