@@ -415,9 +415,10 @@ def _location_status(location: Location) -> dict:
 def world_map(request):
     """World atlas with a live day/night shadow and one marker per location.
 
-    Markers are placed via the latitude/longitude of each location's astral
-    ``city`` (the same database the solar windows use), so locations without
-    a city cannot be plotted and are listed separately instead. The night
+    Markers are placed at each location's explicit ``position`` when set
+    (issue #54), else via the latitude/longitude of its astral ``city``
+    (the same database the solar windows use); locations with neither
+    cannot be plotted and are listed separately instead. The night
     shadow and the per-location local-time labels are computed client-side
     (static/presence/js/worldmap.js) from the payload rendered here; the
     marker dots are recoloured live by polling :func:`map_status`.

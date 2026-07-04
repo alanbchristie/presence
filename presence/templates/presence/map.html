@@ -96,7 +96,7 @@
 
 {% if unplottable %}
 <p class="text-secondary small mt-2 mb-0">
-  Not shown (no city set):
+  Not shown (no position or city set):
   {% for location in unplottable %}
     <a href="{% url 'location_detail' location.pk %}">{{ location.name }}</a>{% if not forloop.last %}, {% endif %}
   {% endfor %}

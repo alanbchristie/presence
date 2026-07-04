@@ -5,7 +5,15 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.db import IntegrityError, transaction
 
-from .models import DEFAULT_LOCATION_NAME, AccessKey, Location, Presence
+from . import what3words
+from .models import (
+    DEFAULT_LOCATION_NAME,
+    AccessKey,
+    Location,
+    Presence,
+    format_lat_lon,
+    parse_lat_lon,
+)
 
 
 def _apply_bootstrap_classes(fields) -> None:
@@ -218,17 +226,52 @@ class LocationForm(forms.ModelForm):
     """Create/edit a :class:`~presence.models.Location`.
 
     Carries the ``timezone`` and ``city`` that the location's presences use for
-    their window times (issue #43). The view guards against renaming the
-    protected ``Default`` location.
+    their window times (issue #43), and the optional map ``position`` (issue
+    #54) — entered as either a decimal lat,lon pair or a What3Words address,
+    but always stored (and redisplayed) as the decimal pair. The view guards
+    against renaming the protected ``Default`` location.
     """
 
     class Meta:
         model = Location
-        fields = ["name", "timezone", "city"]
+        fields = ["name", "timezone", "city", "position"]
+        help_texts = {
+            "position": (
+                "Optional. A decimal 'lat,lon' pair (e.g. "
+                "51.520847,-0.195521) or a What3Words address "
+                "(///filled.count.soap). When set, the map places this "
+                "location here instead of at its city."
+            ),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _apply_bootstrap_classes(self.fields.values())
+
+    def clean_position(self) -> str:
+        """Normalise the position to the stored decimal "lat,lon" form.
+
+        A What3Words address is converted through the W3W API here, at
+        validation time, so the model only ever stores (and the rest of
+        the app only ever sees) the decimal pair.
+        """
+        value = (self.cleaned_data.get("position") or "").strip()
+        if not value:
+            return ""
+        if what3words.looks_like_what3words(value):
+            try:
+                latitude, longitude = what3words.convert_to_coordinates(value)
+            except what3words.What3WordsError as error:
+                raise forms.ValidationError(str(error))
+            return format_lat_lon(latitude, longitude)
+        try:
+            latitude, longitude = parse_lat_lon(value)
+        except ValueError:
+            raise forms.ValidationError(
+                "Enter a decimal 'lat,lon' pair (e.g. 51.520847,-0.195521) "
+                "or a What3Words address (///filled.count.soap)."
+            )
+        return format_lat_lon(latitude, longitude)
 
 
 class BootstrapAuthenticationForm(AuthenticationForm):

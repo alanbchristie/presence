@@ -35,6 +35,7 @@ services:
       # skips creation otherwise), so there is no built-in admin/admin login.
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
       PRESENCE_SERVER: ${PRESENCE_SERVER:-runserver}
+      W3W_API_KEY: ${W3W_API_KEY:-}
     volumes:
     - presence-data:/data
     restart: unless-stopped

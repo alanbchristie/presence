@@ -160,9 +160,9 @@
   function applyStatus(marker, entry) {
     marker.dot.className = "map-marker-dot status-" + entry.status;
     var summary = presenceSummary(entry);
+    /* A position-only location (issue #54) has no city to lead with. */
     var lines = [
-      marker.city +
-        " · " +
+      (marker.city ? marker.city + " · " : "") +
         marker.timezone +
         (summary ? " — " + summary : " — no presences"),
     ];
