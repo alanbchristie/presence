@@ -104,6 +104,36 @@ def security_overrides(debug: bool) -> dict:
     }
 
 
+def resolve_databases(environ: dict, *, base_dir: Path) -> dict:
+    """Select the database from the environment (issue #47).
+
+    PostgreSQL when ``DJANGO_DB_HOST`` is present (the docker-compose
+    deployment, where the web and runner containers share one server);
+    otherwise the SQLite file at ``PRESENCE_DB_PATH`` (or the checkout
+    default) so non-docker local dev needs zero setup. The password is
+    read but never logged.
+    """
+    host = (environ.get("DJANGO_DB_HOST") or "").strip()
+    if host:
+        return {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": environ.get("DJANGO_DB_NAME") or "presence",
+                "USER": environ.get("DJANGO_DB_USER") or "presence",
+                "PASSWORD": environ.get("DJANGO_DB_PASSWORD") or "",
+                "HOST": host,
+                "PORT": environ.get("DJANGO_DB_PORT") or "5432",
+            }
+        }
+    return {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": environ.get("PRESENCE_DB_PATH")
+            or (base_dir / "db.sqlite3"),
+        }
+    }
+
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = resolve_debug(os.environ)
 
@@ -221,13 +251,12 @@ WSGI_APPLICATION = "presence_site.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+#
+# Env-selected via resolve_databases(): PostgreSQL when DJANGO_DB_HOST is
+# set (docker-compose), SQLite otherwise (local dev; tests override this
+# in settings_test.py).
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("PRESENCE_DB_PATH") or (BASE_DIR / "db.sqlite3"),
-    }
-}
+DATABASES = resolve_databases(os.environ, base_dir=BASE_DIR)
 
 
 # Password validation
