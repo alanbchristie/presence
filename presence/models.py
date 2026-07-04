@@ -42,6 +42,49 @@ def validate_astral_city(value: str) -> None:
         )
 
 
+def parse_lat_lon(value: str) -> tuple[float, float]:
+    """Parse a decimal "lat,lon" pair, e.g. "51.520847,-0.195521".
+
+    Whitespace around either number is tolerated. Raises ValueError when
+    the string is not two comma-separated decimals or either number is
+    outside its valid range (±90 latitude, ±180 longitude).
+    """
+    parts = (value or "").split(",")
+    if len(parts) != 2:
+        raise ValueError(f"{value!r} is not a 'lat,lon' pair")
+    latitude, longitude = (float(part.strip()) for part in parts)
+    if not -90.0 <= latitude <= 90.0:
+        raise ValueError(f"latitude {latitude} is outside ±90")
+    if not -180.0 <= longitude <= 180.0:
+        raise ValueError(f"longitude {longitude} is outside ±180")
+    return latitude, longitude
+
+
+def format_lat_lon(latitude: float, longitude: float) -> str:
+    """Render coordinates as the canonical stored "lat,lon" string.
+
+    Six decimal places (about 0.1 m) with trailing zeros trimmed, so
+    round-tripping a value the user typed does not grow it.
+    """
+
+    def _number(number: float) -> str:
+        return f"{number:.6f}".rstrip("0").rstrip(".")
+
+    return f"{_number(latitude)},{_number(longitude)}"
+
+
+def validate_lat_lon(value: str) -> None:
+    if not value:
+        return
+    try:
+        parse_lat_lon(value)
+    except ValueError:
+        raise ValidationError(
+            f"{value!r} is not a decimal 'lat,lon' pair "
+            "(e.g. 51.520847,-0.195521)."
+        )
+
+
 def generate_access_key_value() -> str:
     """Return a fresh, URL-safe secret for an :class:`AccessKey`.
 
@@ -90,6 +133,18 @@ class Location(models.Model):
             "presence at this location uses a solar-relative window edge."
         ),
     )
+    position = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_lat_lon],
+        help_text=(
+            "Optional decimal 'lat,lon' pair (e.g. 51.520847,-0.195521). "
+            "When set, the map places this location here instead of at its "
+            "city. The edit form also accepts a What3Words address "
+            "(///word.word.word), stored converted to lat/lon."
+        ),
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="When this location was created. Stored and shown in UTC.",
@@ -107,13 +162,19 @@ class Location(models.Model):
 
     @property
     def coordinates(self) -> tuple[float, float] | None:
-        """The ``(latitude, longitude)`` of this location's city, or None.
+        """The ``(latitude, longitude)`` this location plots at, or None.
 
-        Resolved through astral's built-in city database (the same source
-        the solar window computation uses). None when no city is set, or
-        — defensively, since ``city`` is validated on save — when the
-        stored value is unknown to astral.
+        An explicit ``position`` wins (issue #54); otherwise the city is
+        resolved through astral's built-in database (the same source the
+        solar window computation uses). None when neither is set, or —
+        defensively, since both fields are validated on save — when the
+        stored value is unparseable / unknown to astral.
         """
+        if self.position:
+            try:
+                return parse_lat_lon(self.position)
+            except ValueError:
+                return None
         if not self.city:
             return None
         try:

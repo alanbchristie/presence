@@ -116,6 +116,11 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# What3Words REST API key (issue #54). Optional: only needed to enter a
+# location position as a three-word address; without it the form still
+# accepts decimal lat,lon pairs and explains why W3W input is refused.
+W3W_API_KEY = os.environ.get("W3W_API_KEY", "").strip()
+
 # Origins trusted for unsafe (POST/PUT/...) requests. Django 4.0+ requires the
 # scheme, and an HTTPS origin must be listed explicitly here even if its host is
 # already in ALLOWED_HOSTS — otherwise the admin login POST fails with

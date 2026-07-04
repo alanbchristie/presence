@@ -23,7 +23,15 @@ class AccessKeyAdmin(admin.ModelAdmin):
 
 @admin.register(Location)
 class LocationAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "timezone", "city", "in_use", "created_at")
+    list_display = (
+        "id",
+        "name",
+        "timezone",
+        "city",
+        "position",
+        "in_use",
+        "created_at",
+    )
     list_display_links = ("id", "name")
     search_fields = ("name", "timezone", "city")
     readonly_fields = ("created_at", "updated_at")
