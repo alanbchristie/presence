@@ -68,6 +68,10 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
+        # W3W_API_KEY enables the live What3Words tests (test_w3w_live.py);
+        # they skip when the secret is unavailable (e.g. a fork's PR).
+        env:
+          W3W_API_KEY: ${{ secrets.W3W_API_KEY }}
         run: uv run pytest -q --cov=presence --cov-report=xml
 
       - name: Upload coverage to Codecov
