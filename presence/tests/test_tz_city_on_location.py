@@ -6,7 +6,6 @@ API continues to expose both. The deprecated Presence.timezone / Presence.city
 columns were dropped entirely in issue #52.
 """
 import json
-from datetime import time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -45,7 +44,7 @@ def test_location_rejects_unknown_city():
 
 def test_window_open_uses_location_timezone(make_presence):
     # 20:00 wall-clock interpreted in the location's timezone, not UTC.
-    p = make_presence(timezone="Europe/London", earliest_on=time(20, 0))
+    p = make_presence(timezone="Europe/London", window_open="20:00")
     open_dt, _ = p._window_for_date(__import__("datetime").date(2026, 7, 15))
     # BST is UTC+1, so 20:00 London is 19:00 UTC.
     assert open_dt.astimezone(ZoneInfo("UTC")).hour == 19
@@ -53,23 +52,13 @@ def test_window_open_uses_location_timezone(make_presence):
 
 def test_solar_edge_requires_city_on_location(make_presence):
     # Solar edge but the location has no city -> non-field validation error.
-    p = make_presence(
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=timedelta(minutes=-30),
-        city="",
-    )
+    p = make_presence(window_open="-00:30", city="")
     with pytest.raises(ValidationError) as exc:
         p.clean()
     assert NON_FIELD_ERRORS in exc.value.message_dict
 
     # Give the location a city and it validates.
-    make_presence(
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=timedelta(minutes=-30),
-        city="London",
-    ).clean()
+    make_presence(window_open="-00:30", city="London").clean()
 
 
 # --- API still exposes both values, sourced from the location ------------

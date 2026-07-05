@@ -75,6 +75,16 @@ class PresenceForm(forms.ModelForm):
                 attrs={"placeholder": "HH:MM or ±HH:MM"}
             ),
         }
+        # The window and duration fields render inside "Window" / "On" /
+        # "Off" panels, so their labels drop the repeated context.
+        labels = {
+            "window_open": "Open",
+            "window_close": "Close",
+            "min_on_duration": "Minimum",
+            "max_on_duration": "Maximum",
+            "min_off_duration": "Minimum",
+            "max_off_duration": "Maximum",
+        }
 
     # Render the inline-create field directly after the access-key select.
     field_order = [
@@ -114,6 +124,15 @@ class PresenceForm(forms.ModelForm):
             self.fields["location"].initial = (
                 Location.objects.filter(name=DEFAULT_LOCATION_NAME).first()
             )
+        # Opt the duration inputs into the log-scale minute sliders that
+        # presence/js/duration_slider.js attaches on the form pages.
+        for field_name in (
+            "min_on_duration",
+            "max_on_duration",
+            "min_off_duration",
+            "max_off_duration",
+        ):
+            self.fields[field_name].widget.attrs["data-duration-slider"] = ""
         _apply_bootstrap_classes(self.fields.values())
 
     def clean(self):

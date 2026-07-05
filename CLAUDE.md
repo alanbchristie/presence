@@ -85,24 +85,26 @@ must be preserved when editing it:
 
 ### Window computation
 
-`presence/models.py` `Presence` computes the daily active window two ways,
-selected per row:
-- **Absolute**: `earliest_on` / `latest_off` wall-clock times, interpreted in
-  the IANA `timezone` of the presence's `Location`.
-- **Solar**: offsets relative to sunset/sunrise via the `astral` library's
-  built-in city database, keyed by the `Location`'s `city`.
+Each window edge is one string field on `Presence` (issue #59):
+`window_open` and `window_close`, parsed by `models.parse_window_edge`:
+- **Absolute**: `HH:MM` — a wall-clock time, interpreted in the IANA
+  `timezone` of the presence's `Location`.
+- **Solar**: `+HH:MM` / `-HH:MM` — a signed offset from sunset (open) or
+  sunrise (close) via the `astral` library's built-in city database, keyed
+  by the `Location`'s `city`. The sign alone selects solar mode, so
+  `+00:00` is exactly sunset/sunrise while `00:00` is midnight.
 
 `timezone` and `city` live on `Location` (issue #43): all presences at a
 location share them, and the window helpers read `self.location.timezone` /
-`self.location.city`. The same-named `Presence` fields are deprecated, nullable,
-and unused (kept for history). `Location.clean`/field validators check the IANA
-`timezone` and astral `city`; `Presence.clean()` enforces which window fields
-are required for the chosen mode, validates `identifier` (RFC 1123 DNS label,
-unique), and — for a solar edge — raises a non-field error unless the linked
-location names a city. The window helpers (`is_in_window`, `next_window_open`,
-`window_close_after`, `_window_for_date`) are the contract the runner depends
-on; the API (`_serialize`) still exposes `timezone`/`city`, sourced from the
-location.
+`self.location.city`. `Location.clean`/field validators check the IANA
+`timezone` and astral `city`; the edge strings are checked by
+`models.validate_window_edge` and normalised (2-digit hours) by the form;
+`Presence.clean()` validates `identifier` (RFC 1123 DNS label, unique),
+rejects a zero-length absolute window, and — for a solar edge — raises a
+non-field error unless the linked location names a city. The window helpers
+(`is_in_window`, `next_window_open`, `window_close_after`,
+`_window_for_date`) are the contract the runner depends on; the API
+(`_serialize`) still exposes `timezone`/`city`, sourced from the location.
 
 ### API
 
@@ -115,7 +117,7 @@ no longer a global/open mode. The initial `Default` key is seeded by migration
 `0009`. Access keys are
 managed in the web UI (`access-key/*` routes); a key in use by any presence is
 PROTECTed from deletion. Timestamps render in the row's timezone; durations as
-`HH:MM`, signed solar offsets as `±HH:MM` (see `forms.SignedDurationFormField`).
+`HH:MM`; the window edges are served verbatim (`HH:MM` or `±HH:MM`).
 
 An unknown identifier returns the **same** `403` as a known one with a bad key,
 so callers cannot enumerate which presences exist (do not reintroduce

@@ -186,6 +186,12 @@ def test_detail_json_returns_serialized_payload_for_logged_in_user(
     assert payload["identifier"] == VALID_KWARGS["identifier"]
     assert payload["name"] == VALID_KWARGS["name"]
     assert payload["state"] == "on"
+    # The amalgamated window edges (issue #59) replaced the earliest_on /
+    # latest_off trios in the payload.
+    assert payload["window_open"] == VALID_KWARGS["window_open"]
+    assert payload["window_close"] == VALID_KWARGS["window_close"]
+    assert "earliest_on" not in payload
+    assert "latest_off" not in payload
 
 
 def test_detail_json_unknown_identifier_returns_404(client, django_user_model):
@@ -203,10 +209,8 @@ EDIT_POST_DATA = {
     "name": "Lamp Renamed",
     "enabled": "on",
     "timezone": "UTC",
-    "earliest_on": "20:00",
-    "latest_off": "23:00",
-    "earliest_on_offset": "",
-    "latest_off_offset": "",
+    "window_open": "20:00",
+    "window_close": "23:00",
     "city": "",
     "min_on_duration": "01:00:00",
     "max_on_duration": "01:00:00",
@@ -351,10 +355,8 @@ ADD_POST_DATA = {
     "name": "Desk Lamp",
     "enabled": "on",
     "timezone": "UTC",
-    "earliest_on": "20:00",
-    "latest_off": "23:00",
-    "earliest_on_offset": "",
-    "latest_off_offset": "",
+    "window_open": "20:00",
+    "window_close": "23:00",
     "city": "",
     "min_on_duration": "01:00:00",
     "max_on_duration": "02:00:00",

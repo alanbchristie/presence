@@ -279,8 +279,8 @@ def _window_containing_now() -> dict:
     """Absolute UTC window edges guaranteed to contain the current time."""
     now = timezone.now()
     return {
-        "earliest_on": (now - timedelta(hours=2)).time(),
-        "latest_off": (now + timedelta(hours=2)).time(),
+        "window_open": (now - timedelta(hours=2)).strftime("%H:%M"),
+        "window_close": (now + timedelta(hours=2)).strftime("%H:%M"),
     }
 
 
@@ -288,8 +288,8 @@ def _window_excluding_now() -> dict:
     """Absolute UTC window edges guaranteed not to contain the current time."""
     now = timezone.now()
     return {
-        "earliest_on": (now + timedelta(hours=1)).time(),
-        "latest_off": (now + timedelta(hours=2)).time(),
+        "window_open": (now + timedelta(hours=1)).strftime("%H:%M"),
+        "window_close": (now + timedelta(hours=2)).strftime("%H:%M"),
     }
 
 

@@ -1,0 +1,48 @@
+{% comment %}
+Body of the presence create/edit/duplicate form (issue #59): the identity
+fields first, then the window and on/off durations grouped into panels so
+they are easier to digest. The surrounding <form>, CSRF token, and
+submit/cancel buttons live in the including template, which also loads
+presence/js/duration_slider.js (via extra_js) for the log-scale sliders
+attached to the duration inputs.
+{% endcomment %}
+{% if form.non_field_errors %}
+  <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+{% endif %}
+
+{% include "presence/_form_field.html" with field=form.identifier %}
+{% include "presence/_form_field.html" with field=form.name %}
+{% include "presence/_form_field.html" with field=form.enabled %}
+{% include "presence/_form_field.html" with field=form.location %}
+{% include "presence/_form_field.html" with field=form.access_key %}
+{% include "presence/_form_field.html" with field=form.new_access_key_name %}
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header">Window</div>
+      <div class="card-body pb-0">
+        {% include "presence/_form_field.html" with field=form.window_open %}
+        {% include "presence/_form_field.html" with field=form.window_close %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header">On</div>
+      <div class="card-body pb-0">
+        {% include "presence/_form_field.html" with field=form.min_on_duration %}
+        {% include "presence/_form_field.html" with field=form.max_on_duration %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header">Off</div>
+      <div class="card-body pb-0">
+        {% include "presence/_form_field.html" with field=form.min_off_duration %}
+        {% include "presence/_form_field.html" with field=form.max_off_duration %}
+      </div>
+    </div>
+  </div>
+</div>

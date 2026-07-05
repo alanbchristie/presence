@@ -13,8 +13,7 @@ Originally written as a way to drive lights with non-fixed schedules so a proper
   - `identifier` — URL-safe RFC 1123 DNS label (unique) used in the REST API path
   - `name` — human-readable label
   - `min_on_duration`, `max_on_duration`, `min_off_duration`, `max_off_duration` (≥ 1 minute each)
-  - Daily active window via `earliest_on` / `latest_off` wall-clock times, or
-  - Solar-relative window via `earliest_on_relative_to_sunset` / `earliest_on_offset` and `latest_off_relative_to_sunrise` / `latest_off_offset` (offsets are signed `HH:MM`/`HH:MM:SS` durations) using astral's built-in city database
+  - Daily active window via `window_open` / `window_close` — each edge is either a wall-clock `HH:MM`, or a signed `±HH:MM` offset from sunset (open) / sunrise (close) using astral's built-in city database (so `-01:00` opens an hour before sunset and `+00:00` is exactly sunset/sunrise)
   - Per-row IANA `timezone` (e.g. `Europe/London`)
   - `enabled` flag to pause a row without deleting it
 - **Background runner** cycles each enabled row between on/off — a dedicated container under Docker Compose (`manage.py run_runner`), or an in-process thread started from `AppConfig.ready()` under plain `runserver`:
@@ -203,12 +202,8 @@ $ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/living-ro
   "max_on_duration": "01:30",
   "min_off_duration": "00:05",
   "max_off_duration": "00:45",
-  "earliest_on": null,
-  "latest_off": null,
-  "earliest_on_relative_to_sunset": true,
-  "earliest_on_offset": "-01:00",
-  "latest_off_relative_to_sunrise": false,
-  "latest_off_offset": null,
+  "window_open": "-01:00",
+  "window_close": "01:30",
   "city": "London",
   "state": "off",
   "state_since": "2026-05-11T18:21:30+01:00",
@@ -270,7 +265,7 @@ presence/               # The app
     management/         # run_runner command (the runner container's process)
     views.py            # JSON API + presence/access-key web UI
     auth.py             # X-API-Key check against a presence's access key
-    forms.py            # SignedDurationFormField (±HH:MM rendering)
+    forms.py            # Presence/location/access-key forms
     admin.py            # ModelAdmin with row-tz formatted columns
     migrations/
 ```
