@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Duplicate {{ source.name }} &mdash; Presence{% endblock %}
 
@@ -19,10 +20,14 @@
 
   <form method="post" action="{% url 'duplicate' source.identifier %}" novalidate>
     {% csrf_token %}
-    {% include "presence/_form_fields.html" %}
+    {% include "presence/_presence_form_fields.html" %}
     <div class="d-flex gap-2">
       <a href="{% url 'detail' source.identifier %}" class="btn btn-secondary">Cancel</a>
       <button type="submit" class="btn btn-primary">Create copy</button>
     </div>
   </form>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'presence/js/duration_slider.js' %}"></script>
 {% endblock %}

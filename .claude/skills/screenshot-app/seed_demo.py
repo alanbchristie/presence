@@ -10,7 +10,7 @@ flip. Without this, enabled rows snap to their time-of-day window state.
 Each presence needs a Location (issue #43 moved timezone/city there); the demo
 locations carry real astral cities so the Map page has markers to show.
 """
-from datetime import time, timedelta
+from datetime import timedelta
 
 from django.utils import timezone
 
@@ -40,10 +40,8 @@ common = dict(
     max_on_duration=timedelta(hours=2),
     min_off_duration=timedelta(hours=1),
     max_off_duration=timedelta(hours=2),
-    earliest_on=time(0, 0),
-    latest_off=time(23, 59),
-    earliest_on_relative_to_sunset=False,
-    latest_off_relative_to_sunrise=False,
+    window_open="00:00",
+    window_close="23:59",
 )
 
 Presence.objects.all().delete()

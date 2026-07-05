@@ -41,31 +41,68 @@
 
     <dt class="col-sm-3">Timezone</dt>
     <dd class="col-sm-9">{{ data.timezone }}</dd>
+  </dl>
 
-    <dt class="col-sm-3">Earliest on</dt>
-    <dd class="col-sm-9">
-      {% if data.earliest_on_relative_to_sunset %}
-        {{ data.earliest_on_offset }} relative to sunset{% if data.city %} ({{ data.city }}){% endif %}
-      {% else %}
-        {{ data.earliest_on }}
-      {% endif %}
-    </dd>
+  <div class="row g-3 mb-3">
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">Window</div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-4">Open</dt>
+            <dd class="col-8">
+              {% if presence.window_open_is_solar %}
+                <span class="font-monospace">{{ data.window_open }}</span>
+                relative to sunset{% if data.city %} ({{ data.city }}){% endif %}
+              {% else %}
+                <span class="font-monospace">{{ data.window_open }}</span>
+              {% endif %}
+            </dd>
 
-    <dt class="col-sm-3">Latest off</dt>
-    <dd class="col-sm-9">
-      {% if data.latest_off_relative_to_sunrise %}
-        {{ data.latest_off_offset }} relative to sunrise{% if data.city %} ({{ data.city }}){% endif %}
-      {% else %}
-        {{ data.latest_off }}
-      {% endif %}
-    </dd>
+            <dt class="col-4">Close</dt>
+            <dd class="col-8 mb-0">
+              {% if presence.window_close_is_solar %}
+                <span class="font-monospace">{{ data.window_close }}</span>
+                relative to sunrise{% if data.city %} ({{ data.city }}){% endif %}
+              {% else %}
+                <span class="font-monospace">{{ data.window_close }}</span>
+              {% endif %}
+            </dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">On</div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-4">Minimum</dt>
+            <dd class="col-8"><span class="font-monospace">{{ data.min_on_duration }}</span></dd>
 
-    <dt class="col-sm-3">On duration</dt>
-    <dd class="col-sm-9">{{ data.min_on_duration }} &ndash; {{ data.max_on_duration }}</dd>
+            <dt class="col-4">Maximum</dt>
+            <dd class="col-8 mb-0"><span class="font-monospace">{{ data.max_on_duration }}</span></dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">Off</div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-4">Minimum</dt>
+            <dd class="col-8"><span class="font-monospace">{{ data.min_off_duration }}</span></dd>
 
-    <dt class="col-sm-3">Off duration</dt>
-    <dd class="col-sm-9">{{ data.min_off_duration }} &ndash; {{ data.max_off_duration }}</dd>
+            <dt class="col-4">Maximum</dt>
+            <dd class="col-8 mb-0"><span class="font-monospace">{{ data.max_off_duration }}</span></dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
 
+  <dl class="row">
     <dt class="col-sm-3">In window</dt>
     <dd class="col-sm-9">{{ data.in_window|yesno:"Yes,No" }}</dd>
 

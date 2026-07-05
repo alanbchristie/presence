@@ -1,0 +1,21 @@
+{% comment %}
+Renders one Bootstrap-styled bound form field (pass it as `field`).
+Checkbox widgets get form-check markup; everything else a stacked
+label + widget. Field help text is surfaced as a hover/focus tooltip
+on a small info icon beside the label; tooltips are initialised once,
+globally, in base.html.
+{% endcomment %}
+{% if field.field.widget.input_type == "checkbox" %}
+  <div class="form-check mb-3">
+    {{ field }}
+    <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {% if field.help_text %}{% include "presence/_help_tooltip.html" with text=field.help_text label=field.label %}{% endif %}
+    {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+  </div>
+{% else %}
+  <div class="mb-3">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.help_text %}{% include "presence/_help_tooltip.html" with text=field.help_text label=field.label %}{% endif %}</label>
+    {{ field }}
+    {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+  </div>
+{% endif %}

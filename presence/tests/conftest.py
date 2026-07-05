@@ -8,7 +8,7 @@ Because a valid presence now needs a saved access key, the factory depends on
 the ``db`` fixture. No factory_boy / freezegun: the model takes explicit
 `now`/`on_date`, so plain instances and hand-built datetimes are sufficient.
 """
-from datetime import time, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -17,6 +17,8 @@ from presence.models import AccessKey, Location, Presence
 #: A complete, valid set of constructor kwargs (absolute window mode).
 #: ``timezone`` and ``city`` now live on the Location (issue #43); the
 #: ``make_presence`` factory routes those overrides onto the linked location.
+#: The window edges are the amalgamated ``window_open`` / ``window_close``
+#: strings (issue #59): ``HH:MM`` for wall-clock, ``±HH:MM`` for solar.
 VALID_KWARGS = dict(
     identifier="lamp",
     name="Lamp",
@@ -25,10 +27,8 @@ VALID_KWARGS = dict(
     max_on_duration=timedelta(hours=1),
     min_off_duration=timedelta(hours=1),
     max_off_duration=timedelta(hours=1),
-    earliest_on=time(20, 0),
-    latest_off=time(23, 0),
-    earliest_on_relative_to_sunset=False,
-    latest_off_relative_to_sunrise=False,
+    window_open="20:00",
+    window_close="23:00",
 )
 
 

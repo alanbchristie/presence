@@ -1,11 +1,9 @@
 from zoneinfo import ZoneInfo
 
-from django import forms
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .forms import SignedDurationFormField
 from .models import AccessKey, Location, Presence
 
 
@@ -41,24 +39,8 @@ class LocationAdmin(admin.ModelAdmin):
         return obj.in_use
 
 
-class PresenceAdminForm(forms.ModelForm):
-    earliest_on_offset = SignedDurationFormField(
-        required=False,
-        help_text="Signed offset from sunset, e.g. -01:00 for one hour before sunset.",
-    )
-    latest_off_offset = SignedDurationFormField(
-        required=False,
-        help_text="Signed offset from sunrise, e.g. +02:00 for two hours after sunrise.",
-    )
-
-    class Meta:
-        model = Presence
-        fields = "__all__"
-
-
 @admin.register(Presence)
 class PresenceAdmin(admin.ModelAdmin):
-    form = PresenceAdminForm
     list_display = (
         "id",
         "identifier",
@@ -67,8 +49,8 @@ class PresenceAdmin(admin.ModelAdmin):
         "current_state",
         "state_since_local",
         "next_transition_at_local",
-        "earliest_on",
-        "latest_off",
+        "window_open",
+        "window_close",
         "location_link",
     )
     list_display_links = ("id", "identifier", "name")
@@ -100,12 +82,8 @@ class PresenceAdmin(admin.ModelAdmin):
             "Window",
             {
                 "fields": (
-                    "earliest_on",
-                    "earliest_on_relative_to_sunset",
-                    "earliest_on_offset",
-                    "latest_off",
-                    "latest_off_relative_to_sunrise",
-                    "latest_off_offset",
+                    "window_open",
+                    "window_close",
                 ),
             },
         ),
