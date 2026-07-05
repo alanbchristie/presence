@@ -1,6 +1,3 @@
-import re
-from datetime import timedelta
-
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.db import IntegrityError, transaction
@@ -12,6 +9,7 @@ from .models import (
     Location,
     Presence,
     format_lat_lon,
+    normalize_window_edge,
     parse_lat_lon,
 )
 
@@ -27,69 +25,25 @@ def _apply_bootstrap_classes(fields) -> None:
         else:
             widget.attrs["class"] = "form-control"
 
-_HH_MM_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2})$")
-_HH_MM_SS_RE = re.compile(r"^([+-]?)(\d{1,3}):(\d{2}):(\d{2})$")
-
-
-class SignedDurationFormField(forms.DurationField):
-    """Form field that renders/parses signed durations as ±HH:MM[:SS].
-
-    Django's default DurationField formatting leaks Python's
-    ``timedelta(days=-1, seconds=82800)`` representation (``"-1 23:00:00"``)
-    for negative values, and prefers MM:SS for short colon-separated inputs.
-    This subclass standardises on HH:MM (with optional :SS).
-    """
-
-    def prepare_value(self, value):
-        if isinstance(value, timedelta):
-            total = int(value.total_seconds())
-            sign = "-" if total < 0 else "+"
-            absolute = abs(total)
-            hours, remainder = divmod(absolute, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            if seconds:
-                return f"{sign}{hours:02d}:{minutes:02d}:{seconds:02d}"
-            return f"{sign}{hours:02d}:{minutes:02d}"
-        return super().prepare_value(value)
-
-    def to_python(self, value):
-        if value in (None, ""):
-            return None
-        if isinstance(value, timedelta):
-            return value
-        s = str(value).strip()
-        m = _HH_MM_SS_RE.match(s)
-        if m:
-            sign_str, h, mn, sec = m.groups()
-            td = timedelta(hours=int(h), minutes=int(mn), seconds=int(sec))
-            return -td if sign_str == "-" else td
-        m = _HH_MM_RE.match(s)
-        if m:
-            sign_str, h, mn = m.groups()
-            td = timedelta(hours=int(h), minutes=int(mn))
-            return -td if sign_str == "-" else td
-        return super().to_python(value)
-
-
 class PresenceForm(forms.ModelForm):
     """Create/edit form for a :class:`~presence.models.Presence`.
 
     Exposes only the user-configurable fields; the runner-managed state
     (`current_state`, `state_since`, `next_transition_at`) and the auto
     timestamps are left off. Cross-field validation (duration ordering,
-    absolute-vs-solar window edges, city requirement) is inherited from
+    solar-edge city requirement, zero-length window) is inherited from
     ``Presence.clean()``, which the ModelForm runs during validation.
 
-    The signed solar offsets reuse :class:`SignedDurationFormField` so they
-    render and parse as ±HH:MM, matching the API and admin.
+    Each window edge is one string (issue #59): ``HH:MM`` for a wall-clock
+    time, ``±HH:MM`` for a solar offset. The clean methods below normalise
+    what the user typed (e.g. ``7:30`` → ``07:30``) so the stored form is
+    canonical.
 
     Every presence needs an access key. The user either selects an existing
     key or supplies ``new_access_key_name`` to have one created and linked on
     save (issue #26, requirement 5).
     """
 
-    earliest_on_offset = SignedDurationFormField(required=False)
-    latest_off_offset = SignedDurationFormField(required=False)
     # Optional inline creation: when filled, a new key with this name is
     # created and linked, instead of selecting an existing key.
     new_access_key_name = forms.CharField(
@@ -106,20 +60,20 @@ class PresenceForm(forms.ModelForm):
             "enabled",
             "location",
             "access_key",
-            "earliest_on",
-            "earliest_on_relative_to_sunset",
-            "earliest_on_offset",
-            "latest_off",
-            "latest_off_relative_to_sunrise",
-            "latest_off_offset",
+            "window_open",
+            "window_close",
             "min_on_duration",
             "max_on_duration",
             "min_off_duration",
             "max_off_duration",
         ]
         widgets = {
-            "earliest_on": forms.TimeInput(format="%H:%M", attrs={"type": "time"}),
-            "latest_off": forms.TimeInput(format="%H:%M", attrs={"type": "time"}),
+            "window_open": forms.TextInput(
+                attrs={"placeholder": "HH:MM or ±HH:MM"}
+            ),
+            "window_close": forms.TextInput(
+                attrs={"placeholder": "HH:MM or ±HH:MM"}
+            ),
         }
 
     # Render the inline-create field directly after the access-key select.
@@ -130,17 +84,21 @@ class PresenceForm(forms.ModelForm):
         "location",
         "access_key",
         "new_access_key_name",
-        "earliest_on",
-        "earliest_on_relative_to_sunset",
-        "earliest_on_offset",
-        "latest_off",
-        "latest_off_relative_to_sunrise",
-        "latest_off_offset",
+        "window_open",
+        "window_close",
         "min_on_duration",
         "max_on_duration",
         "min_off_duration",
         "max_off_duration",
     ]
+
+    # These run only after the model field's validate_window_edge accepted
+    # the value, so normalisation cannot fail here.
+    def clean_window_open(self) -> str:
+        return normalize_window_edge(self.cleaned_data["window_open"])
+
+    def clean_window_close(self) -> str:
+        return normalize_window_edge(self.cleaned_data["window_close"])
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

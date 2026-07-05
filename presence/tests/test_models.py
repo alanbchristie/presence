@@ -1,12 +1,18 @@
 """Unit tests for the Presence model.
 
 Coverage areas:
-  (a) the three field validator functions,
+  (a) the field validator functions and the window-edge parse/format helpers,
   (b) ``clean()`` — every branch of the absolute/solar validation matrix,
   (c) ``full_clean()`` — MinValueValidator + the unique identifier (DB),
   (d) window math with absolute times (wrap, boundaries, day-1 lookback),
   (e) timezone correctness across a DST boundary,
   (f) solar windows (wiring verified against astral, not hard-coded astronomy).
+
+A window edge is a single string (issue #59): ``HH:MM`` is an absolute
+wall-clock time; ``+HH:MM`` / ``-HH:MM`` is a signed offset from sunset
+(``window_open``) or sunrise (``window_close``) — the sign is what selects
+solar mode, so ``+00:00`` means exactly sunset/sunrise while ``00:00`` means
+midnight.
 
 Only the two DB-hitting tests are marked ``django_db``; everything else
 operates on unsaved instances and is pure.
@@ -23,9 +29,13 @@ from django.db import IntegrityError, transaction
 
 from presence.models import (
     Presence,
+    format_window_edge,
+    normalize_window_edge,
+    parse_window_edge,
     validate_astral_city,
     validate_dns_label,
     validate_iana_timezone,
+    validate_window_edge,
 )
 
 UTC = ZoneInfo("UTC")
@@ -88,6 +98,120 @@ def test_validate_astral_city_rejects_unknown_city():
     ]
 
 
+# --- (a) window-edge parse / normalize / validate --------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("20:00", time(20, 0)),
+        ("00:00", time(0, 0)),
+        ("23:59", time(23, 59)),
+        ("07:05", time(7, 5)),
+        ("7:05", time(7, 5)),  # 1-digit hour tolerated on input
+        (" 20:00 ", time(20, 0)),  # surrounding whitespace tolerated
+    ],
+)
+def test_parse_window_edge_absolute(value, expected):
+    assert parse_window_edge(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("+00:00", timedelta(0)),  # exactly sunset/sunrise
+        ("-00:30", timedelta(minutes=-30)),
+        ("+01:15", timedelta(hours=1, minutes=15)),
+        ("-23:59", -timedelta(hours=23, minutes=59)),
+        ("+2:15", timedelta(hours=2, minutes=15)),  # 1-digit hour tolerated
+    ],
+)
+def test_parse_window_edge_solar(value, expected):
+    assert parse_window_edge(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "sunset",
+        "20",
+        "20:5",  # minutes must be two digits
+        "24:00",  # absolute hours are 0-23
+        "20:60",
+        "+24:00",  # offset hours are 0-23 too
+        "20:00:00",  # no seconds component
+        "++01:00",
+        "1000:00",
+        "20.00",
+    ],
+)
+def test_parse_window_edge_rejects_invalid(value):
+    with pytest.raises(ValueError):
+        parse_window_edge(value)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("7:30", "07:30"),
+        ("+1:00", "+01:00"),
+        ("-0:05", "-00:05"),
+        ("20:00", "20:00"),
+        (" 20:00 ", "20:00"),
+        ("+00:00", "+00:00"),
+    ],
+)
+def test_normalize_window_edge(value, expected):
+    assert normalize_window_edge(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (time(7, 5), "07:05"),
+        (time(20, 0), "20:00"),
+        (timedelta(0), "+00:00"),
+        (timedelta(minutes=-30), "-00:30"),
+        (timedelta(hours=2, minutes=15), "+02:15"),
+    ],
+)
+def test_format_window_edge(value, expected):
+    assert format_window_edge(value) == expected
+
+
+@pytest.mark.parametrize("value", ["20:00", "+00:00", "-1:30"])
+def test_format_round_trips_parse(value):
+    assert format_window_edge(parse_window_edge(value)) == normalize_window_edge(value)
+
+
+def test_validate_window_edge_accepts_valid():
+    assert validate_window_edge("20:00") is None
+    assert validate_window_edge("-01:30") is None
+
+
+@pytest.mark.parametrize("value", ["", "24:00", "sunset", "+24:00"])
+def test_validate_window_edge_rejects_invalid(value):
+    with pytest.raises(ValidationError) as exc:
+        validate_window_edge(value)
+    assert exc.value.messages == [
+        f"{value!r} is not a window edge: use HH:MM for a wall-clock time "
+        "or +HH:MM / -HH:MM for a solar offset."
+    ]
+
+
+# --- solar-mode properties --------------------------------------------------
+
+
+def test_window_edge_is_solar_properties(make_presence):
+    absolute = make_presence(window_open="20:00", window_close="23:00")
+    assert absolute.window_open_is_solar is False
+    assert absolute.window_close_is_solar is False
+    solar = make_presence(window_open="-00:30", window_close="+00:15")
+    assert solar.window_open_is_solar is True
+    assert solar.window_close_is_solar is True
+
+
 # --- (b) clean() ----------------------------------------------------------
 
 
@@ -120,55 +244,6 @@ def test_clean_max_off_less_than_min_off(make_presence):
     assert exc.value.message_dict["max_off_duration"] == ["Must be >= min_off_duration."]
 
 
-def test_clean_absolute_requires_earliest_on(make_presence):
-    p = make_presence(earliest_on=None)
-    with pytest.raises(ValidationError) as exc:
-        p.clean()
-    assert exc.value.message_dict["earliest_on"] == [
-        "Required unless 'earliest on relative to sunset' is checked."
-    ]
-
-
-def test_clean_absolute_requires_latest_off(make_presence):
-    p = make_presence(latest_off=None)
-    with pytest.raises(ValidationError) as exc:
-        p.clean()
-    assert exc.value.message_dict["latest_off"] == [
-        "Required unless 'latest off relative to sunrise' is checked."
-    ]
-
-
-def test_clean_solar_open_requires_offset_not_earliest_on(make_presence):
-    p = make_presence(
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=None,
-        city="London",
-    )
-    with pytest.raises(ValidationError) as exc:
-        p.clean()
-    md = exc.value.message_dict
-    assert md["earliest_on_offset"] == [
-        "Required when 'earliest on relative to sunset' is checked."
-    ]
-    # earliest_on is NOT required in the solar branch.
-    assert "earliest_on" not in md
-
-
-def test_clean_solar_close_requires_offset(make_presence):
-    p = make_presence(
-        latest_off_relative_to_sunrise=True,
-        latest_off=None,
-        latest_off_offset=None,
-        city="London",
-    )
-    with pytest.raises(ValidationError) as exc:
-        p.clean()
-    assert exc.value.message_dict["latest_off_offset"] == [
-        "Required when 'latest off relative to sunrise' is checked."
-    ]
-
-
 @pytest.mark.parametrize(
     "open_solar,close_solar",
     [(False, False), (True, False), (False, True), (True, True)],
@@ -176,24 +251,16 @@ def test_clean_solar_close_requires_offset(make_presence):
 def test_clean_solar_matrix_city_requirement(make_presence, open_solar, close_solar):
     kwargs = {}
     if open_solar:
-        kwargs.update(
-            earliest_on_relative_to_sunset=True,
-            earliest_on=None,
-            earliest_on_offset=timedelta(minutes=-30),
-        )
+        kwargs.update(window_open="-00:30")
     if close_solar:
-        kwargs.update(
-            latest_off_relative_to_sunrise=True,
-            latest_off=None,
-            latest_off_offset=timedelta(minutes=15),
-        )
+        kwargs.update(window_close="+00:15")
 
     # city omitted (="") on the location:
     p = make_presence(city="", **kwargs)
     if open_solar or close_solar:
         with pytest.raises(ValidationError) as exc:
             p.clean()
-        # The city now lives on the location, so the requirement surfaces as a
+        # The city lives on the location, so the requirement surfaces as a
         # non-field error (issue #43).
         assert exc.value.message_dict[NON_FIELD_ERRORS] == [
             "The presence's location needs a city when either window "
@@ -206,54 +273,48 @@ def test_clean_solar_matrix_city_requirement(make_presence, open_solar, close_so
     make_presence(city="London", **kwargs).clean()
 
 
-def test_clean_city_error_isolated_when_offsets_present(make_presence):
-    p = make_presence(
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=timedelta(minutes=-30),
-        city="",
-    )
-    with pytest.raises(ValidationError) as exc:
-        p.clean()
-    # Only the (non-field) missing-city error fires; the offset is present.
-    assert list(exc.value.message_dict) == [NON_FIELD_ERRORS]
-
-
 def test_clean_rejects_zero_length_absolute_window(make_presence):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(20, 0))
+    p = make_presence(window_open="20:00", window_close="20:00")
     with pytest.raises(ValidationError) as exc:
         p.clean()
-    assert exc.value.message_dict["latest_off"] == [
-        "Must differ from earliest_on (a zero-length window is ambiguous)."
+    assert exc.value.message_dict["window_close"] == [
+        "Must differ from window_open (a zero-length window is ambiguous)."
     ]
 
 
 def test_clean_zero_length_check_suppressed_for_solar_edge(make_presence):
-    # Same clock value on both edges, but the open edge is solar: the
-    # zero-length guard must not fire (it is absolute-vs-absolute only).
-    p = make_presence(
-        earliest_on_relative_to_sunset=True,
-        earliest_on=time(20, 0),
-        earliest_on_offset=timedelta(minutes=-30),
-        latest_off=time(20, 0),
-        city="London",
-    )
+    # The same digits on both edges, but the open edge is solar (+00:00 is
+    # sunset, not midnight): the zero-length guard must not fire — it is
+    # absolute-vs-absolute only.
+    p = make_presence(window_open="+00:00", window_close="00:00", city="London")
     p.clean()  # must not raise
+
+
+def test_clean_tolerates_invalid_edge_strings(make_presence):
+    # Field-level validation (full_clean) owns the format check; clean() must
+    # not crash on an unparseable edge, and must still report other errors.
+    p = make_presence(
+        window_open="sunset",
+        min_on_duration=timedelta(hours=2),
+        max_on_duration=timedelta(hours=1),
+    )
+    with pytest.raises(ValidationError) as exc:
+        p.clean()
+    assert set(exc.value.message_dict) == {"max_on_duration"}
 
 
 def test_clean_accumulates_multiple_errors(make_presence):
     p = make_presence(
         min_on_duration=timedelta(hours=2),
         max_on_duration=timedelta(hours=1),
-        earliest_on=None,
-        latest_off=None,
+        window_open="-00:30",
+        city="",
     )
     with pytest.raises(ValidationError) as exc:
         p.clean()
     assert set(exc.value.message_dict) == {
         "max_on_duration",
-        "earliest_on",
-        "latest_off",
+        NON_FIELD_ERRORS,
     }
 
 
@@ -280,6 +341,25 @@ def test_full_clean_accepts_exactly_one_minute(make_presence):
         min_off_duration=timedelta(minutes=1),
         max_off_duration=timedelta(minutes=1),
     ).full_clean(validate_unique=False)
+
+
+@pytest.mark.parametrize("field", ["window_open", "window_close"])
+def test_full_clean_rejects_blank_window_edge(make_presence, field):
+    p = make_presence(**{field: ""})
+    with pytest.raises(ValidationError) as exc:
+        p.full_clean(validate_unique=False)
+    assert field in exc.value.message_dict
+
+
+@pytest.mark.parametrize("field", ["window_open", "window_close"])
+def test_full_clean_runs_window_edge_validator(make_presence, field):
+    p = make_presence(**{field: "24:00"})
+    with pytest.raises(ValidationError) as exc:
+        p.full_clean(validate_unique=False)
+    assert exc.value.message_dict[field] == [
+        "'24:00' is not a window edge: use HH:MM for a wall-clock time "
+        "or +HH:MM / -HH:MM for a solar offset."
+    ]
 
 
 def test_full_clean_runs_dns_label_validator(make_presence):
@@ -314,7 +394,7 @@ def test_str_returns_name(make_presence):
 
 
 def test_window_for_date_same_day(make_presence):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(23, 0))
+    p = make_presence(window_open="20:00", window_close="23:00")
     open_dt, close_dt = p._window_for_date(date(2026, 1, 15))
     assert open_dt == datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
     assert close_dt == datetime(2026, 1, 15, 23, 0, tzinfo=UTC)
@@ -322,7 +402,7 @@ def test_window_for_date_same_day(make_presence):
 
 
 def test_window_for_date_wraps_past_midnight(make_presence):
-    p = make_presence(earliest_on=time(22, 0), latest_off=time(6, 0))
+    p = make_presence(window_open="22:00", window_close="06:00")
     open_dt, close_dt = p._window_for_date(date(2026, 1, 15))
     assert open_dt == datetime(2026, 1, 15, 22, 0, tzinfo=UTC)
     assert close_dt == datetime(2026, 1, 16, 6, 0, tzinfo=UTC)
@@ -330,7 +410,7 @@ def test_window_for_date_wraps_past_midnight(make_presence):
 
 def test_window_for_date_equal_edges_roll_forward(make_presence):
     # _window_for_date is independent of clean(); equal edges -> close rolls.
-    p = make_presence(earliest_on=time(8, 0), latest_off=time(8, 0))
+    p = make_presence(window_open="08:00", window_close="08:00")
     open_dt, close_dt = p._window_for_date(date(2026, 1, 15))
     assert close_dt == open_dt + timedelta(days=1)
     assert close_dt > open_dt
@@ -346,47 +426,47 @@ def test_window_for_date_equal_edges_roll_forward(make_presence):
     ],
 )
 def test_is_in_window_boundaries(make_presence, now, expected):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(23, 0))
+    p = make_presence(window_open="20:00", window_close="23:00")
     assert p.is_in_window(now) is expected
 
 
 def test_is_in_window_uses_previous_day_window(make_presence):
     # Wrap window 22:00->06:00; 02:00 falls inside the *previous* day's window.
-    p = make_presence(earliest_on=time(22, 0), latest_off=time(6, 0))
+    p = make_presence(window_open="22:00", window_close="06:00")
     assert p.is_in_window(datetime(2026, 1, 15, 2, 0, tzinfo=UTC)) is True
 
 
 def test_is_in_window_outside_all_windows(make_presence):
-    p = make_presence(earliest_on=time(22, 0), latest_off=time(6, 0))
+    p = make_presence(window_open="22:00", window_close="06:00")
     assert p.is_in_window(datetime(2026, 1, 15, 12, 0, tzinfo=UTC)) is False
 
 
 def test_next_window_open_returns_today(make_presence):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(23, 0))
+    p = make_presence(window_open="20:00", window_close="23:00")
     now = datetime(2026, 1, 15, 19, 0, tzinfo=UTC)
     assert p.next_window_open(now) == datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
 
 
 def test_next_window_open_returns_tomorrow(make_presence):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(23, 0))
+    p = make_presence(window_open="20:00", window_close="23:00")
     now = datetime(2026, 1, 15, 23, 30, tzinfo=UTC)
     assert p.next_window_open(now) == datetime(2026, 1, 16, 20, 0, tzinfo=UTC)
 
 
 def test_window_close_after_inside_window(make_presence):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(23, 0))
+    p = make_presence(window_open="20:00", window_close="23:00")
     now = datetime(2026, 1, 15, 21, 0, tzinfo=UTC)
     assert p.window_close_after(now) == datetime(2026, 1, 15, 23, 0, tzinfo=UTC)
 
 
 def test_window_close_after_returns_tomorrow(make_presence):
-    p = make_presence(earliest_on=time(20, 0), latest_off=time(23, 0))
+    p = make_presence(window_open="20:00", window_close="23:00")
     now = datetime(2026, 1, 15, 23, 30, tzinfo=UTC)
     assert p.window_close_after(now) == datetime(2026, 1, 16, 23, 0, tzinfo=UTC)
 
 
 def test_window_close_after_wrap_case(make_presence):
-    p = make_presence(earliest_on=time(22, 0), latest_off=time(6, 0))
+    p = make_presence(window_open="22:00", window_close="06:00")
     now = datetime(2026, 1, 15, 2, 0, tzinfo=UTC)
     assert p.window_close_after(now) == datetime(2026, 1, 15, 6, 0, tzinfo=UTC)
 
@@ -414,7 +494,7 @@ def test_window_close_after_raises_when_no_future_close(make_presence):
 
 def test_window_open_localized_in_winter(make_presence):
     # January: Europe/London == UTC. 20:00 London == 20:00Z.
-    p = make_presence(timezone="Europe/London", earliest_on=time(20, 0))
+    p = make_presence(timezone="Europe/London", window_open="20:00")
     open_dt = p._window_open_for_date(date(2026, 1, 15))
     assert open_dt.tzinfo == LONDON
     assert open_dt.astimezone(UTC) == datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
@@ -424,7 +504,7 @@ def test_window_open_localized_in_winter(make_presence):
 def test_window_open_localized_in_summer_bst(make_presence):
     # July: Europe/London == UTC+1 (BST). 20:00 London == 19:00Z.
     p = make_presence(
-        timezone="Europe/London", earliest_on=time(20, 0), latest_off=time(23, 0)
+        timezone="Europe/London", window_open="20:00", window_close="23:00"
     )
     open_dt = p._window_open_for_date(date(2026, 7, 15))
     assert open_dt.tzinfo == LONDON
@@ -445,41 +525,34 @@ def _expected_sun(on_date):
 
 
 def test_solar_open_is_sunset_plus_offset(make_presence):
-    offset = timedelta(minutes=-30)
     p = make_presence(
         timezone="Europe/London",
         city="London",
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=offset,
+        window_open="-00:30",
     )
-    assert p._window_open_for_date(SOLSTICE) == _expected_sun(SOLSTICE)["sunset"] + offset
+    expected = _expected_sun(SOLSTICE)["sunset"] - timedelta(minutes=30)
+    assert p._window_open_for_date(SOLSTICE) == expected
 
 
 def test_solar_close_is_sunrise_plus_offset(make_presence):
-    offset = timedelta(minutes=15)
     p = make_presence(
         timezone="Europe/London",
         city="London",
-        latest_off_relative_to_sunrise=True,
-        latest_off=None,
-        latest_off_offset=offset,
+        window_close="+00:15",
     )
-    assert p._window_close_for_date(SOLSTICE) == _expected_sun(SOLSTICE)["sunrise"] + offset
+    expected = _expected_sun(SOLSTICE)["sunrise"] + timedelta(minutes=15)
+    assert p._window_close_for_date(SOLSTICE) == expected
 
 
 def test_mixed_mode_open_solar_close_absolute(make_presence):
-    open_offset = timedelta(minutes=-30)
     p = make_presence(
         timezone="Europe/London",
         city="London",
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=open_offset,
-        latest_off_relative_to_sunrise=False,
-        latest_off=time(23, 0),
+        window_open="-00:30",
+        window_close="23:00",
     )
-    assert p._window_open_for_date(SOLSTICE) == _expected_sun(SOLSTICE)["sunset"] + open_offset
+    expected_open = _expected_sun(SOLSTICE)["sunset"] - timedelta(minutes=30)
+    assert p._window_open_for_date(SOLSTICE) == expected_open
     assert p._window_close_for_date(SOLSTICE) == datetime(
         2026, 6, 21, 23, 0, tzinfo=LONDON
     )
@@ -488,19 +561,15 @@ def test_mixed_mode_open_solar_close_absolute(make_presence):
 def test_solar_window_for_date_wraps_to_next_day(make_presence):
     # On the solstice, sunrise+15m is well before sunset-30m, so the close
     # rolls to the next day's sunrise.
-    open_offset = timedelta(minutes=-30)
-    close_offset = timedelta(minutes=15)
     p = make_presence(
         timezone="Europe/London",
         city="London",
-        earliest_on_relative_to_sunset=True,
-        earliest_on=None,
-        earliest_on_offset=open_offset,
-        latest_off_relative_to_sunrise=True,
-        latest_off=None,
-        latest_off_offset=close_offset,
+        window_open="-00:30",
+        window_close="+00:15",
     )
     open_dt, close_dt = p._window_for_date(SOLSTICE)
-    assert open_dt == _expected_sun(SOLSTICE)["sunset"] + open_offset
-    assert close_dt == _expected_sun(SOLSTICE + timedelta(days=1))["sunrise"] + close_offset
+    assert open_dt == _expected_sun(SOLSTICE)["sunset"] - timedelta(minutes=30)
+    assert close_dt == _expected_sun(SOLSTICE + timedelta(days=1))["sunrise"] + timedelta(
+        minutes=15
+    )
     assert close_dt > open_dt

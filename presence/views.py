@@ -49,13 +49,6 @@ def _hhmm(td: timedelta) -> str:
     return f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
 
 
-def _hhmm_signed(td: timedelta) -> str:
-    seconds = int(td.total_seconds())
-    sign = "-" if seconds < 0 else "+"
-    minutes = abs(seconds) // 60
-    return f"{sign}{minutes // 60:02d}:{minutes % 60:02d}"
-
-
 def _serialize(p: Presence) -> dict:
     now = timezone.now()
     # Timezone and city live on the presence's Location (issue #43); the API
@@ -72,12 +65,8 @@ def _serialize(p: Presence) -> dict:
         "max_on_duration": _hhmm(p.max_on_duration),
         "min_off_duration": _hhmm(p.min_off_duration),
         "max_off_duration": _hhmm(p.max_off_duration),
-        "earliest_on": p.earliest_on.isoformat(timespec="minutes") if p.earliest_on else None,
-        "latest_off": p.latest_off.isoformat(timespec="minutes") if p.latest_off else None,
-        "earliest_on_relative_to_sunset": p.earliest_on_relative_to_sunset,
-        "earliest_on_offset": _hhmm_signed(p.earliest_on_offset) if p.earliest_on_offset is not None else None,
-        "latest_off_relative_to_sunrise": p.latest_off_relative_to_sunrise,
-        "latest_off_offset": _hhmm_signed(p.latest_off_offset) if p.latest_off_offset is not None else None,
+        "window_open": p.window_open,
+        "window_close": p.window_close,
         "city": p.location.city or None,
         "state": p.current_state,
         "state_since": _seconds(p.state_since, zone),

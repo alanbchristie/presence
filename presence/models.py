@@ -1,6 +1,6 @@
 import re
 import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from astral.geocoder import database, lookup
@@ -39,6 +39,62 @@ def validate_astral_city(value: str) -> None:
         raise ValidationError(
             f"{value!r} is not in astral's built-in city database. "
             "See https://astral.readthedocs.io for the list."
+        )
+
+
+#: One window edge (issue #59): "HH:MM" is an absolute wall-clock time;
+#: "+HH:MM" / "-HH:MM" is a signed offset from sunset (``window_open``)
+#: or sunrise (``window_close``). The sign alone selects solar mode, so
+#: "+00:00" means exactly sunset/sunrise while "00:00" means midnight.
+#: Hours are 0-23 in both forms; a 1-digit hour is tolerated on input
+#: and normalized to two digits for storage.
+_WINDOW_EDGE_RE = re.compile(
+    r"^(?P<sign>[+-]?)(?P<hours>\d{1,2}):(?P<minutes>[0-5]\d)$"
+)
+
+
+def parse_window_edge(value: str) -> time | timedelta:
+    """Parse a window-edge string.
+
+    Returns a :class:`datetime.time` for the absolute form and a signed
+    :class:`datetime.timedelta` for the solar-offset form. Raises
+    ValueError for anything else.
+    """
+    match = _WINDOW_EDGE_RE.match((value or "").strip())
+    if match is None:
+        raise ValueError(f"{value!r} is not a window edge")
+    hours = int(match["hours"])
+    minutes = int(match["minutes"])
+    if hours > 23:
+        raise ValueError(f"{value!r} has hours of 24 or more")
+    if not match["sign"]:
+        return time(hours, minutes)
+    offset = timedelta(hours=hours, minutes=minutes)
+    return -offset if match["sign"] == "-" else offset
+
+
+def format_window_edge(value: time | timedelta) -> str:
+    """Render a parsed window edge in its canonical stored string form."""
+    if isinstance(value, timedelta):
+        total_minutes = int(value.total_seconds()) // 60
+        sign = "-" if total_minutes < 0 else "+"
+        hours, minutes = divmod(abs(total_minutes), 60)
+        return f"{sign}{hours:02d}:{minutes:02d}"
+    return f"{value.hour:02d}:{value.minute:02d}"
+
+
+def normalize_window_edge(value: str) -> str:
+    """Return the canonical form of a window-edge string (2-digit hours)."""
+    return format_window_edge(parse_window_edge(value))
+
+
+def validate_window_edge(value: str) -> None:
+    try:
+        parse_window_edge(value)
+    except ValueError:
+        raise ValidationError(
+            f"{value!r} is not a window edge: use HH:MM for a wall-clock "
+            "time or +HH:MM / -HH:MM for a solar offset."
         )
 
 
@@ -404,38 +460,25 @@ class Presence(models.Model):
         ),
     )
 
-    earliest_on = models.TimeField(
-        null=True,
-        blank=True,
-        help_text="Wall-clock time of day when the window opens. "
-                  "Leave blank when 'earliest on relative to sunset' is checked.",
+    window_open = models.CharField(
+        max_length=6,
+        validators=[validate_window_edge],
+        help_text=(
+            "When the daily active window opens: HH:MM for a wall-clock "
+            "time in the location's timezone, or a signed +HH:MM / -HH:MM "
+            "offset from sunset (e.g. -01:00 for one hour before sunset; "
+            "the location must then name a city)."
+        ),
     )
-    latest_off = models.TimeField(
-        null=True,
-        blank=True,
-        help_text="Wall-clock time of day when the window closes. "
-                  "Leave blank when 'latest off relative to sunrise' is checked. "
-                  "If <= earliest_on, the window wraps past midnight.",
-    )
-    earliest_on_relative_to_sunset = models.BooleanField(
-        default=False,
-        help_text="If set, the window opens at sunset + earliest_on_offset (offset may be negative).",
-    )
-    earliest_on_offset = models.DurationField(
-        null=True,
-        blank=True,
-        help_text="Signed offset from sunset, e.g. -1:00:00 for one hour before sunset. "
-                  "Required when 'earliest on relative to sunset' is checked.",
-    )
-    latest_off_relative_to_sunrise = models.BooleanField(
-        default=False,
-        help_text="If set, the window closes at sunrise + latest_off_offset (offset may be negative).",
-    )
-    latest_off_offset = models.DurationField(
-        null=True,
-        blank=True,
-        help_text="Signed offset from sunrise, e.g. 2:00:00 for two hours after sunrise. "
-                  "Required when 'latest off relative to sunrise' is checked.",
+    window_close = models.CharField(
+        max_length=6,
+        validators=[validate_window_edge],
+        help_text=(
+            "When the daily active window closes: HH:MM for a wall-clock "
+            "time in the location's timezone, or a signed +HH:MM / -HH:MM "
+            "offset from sunrise (e.g. +00:30 for half an hour after "
+            "sunrise). A close at or before the open wraps past midnight."
+        ),
     )
     current_state = models.CharField(
         max_length=3,
@@ -493,34 +536,22 @@ class Presence(models.Model):
         ):
             errors["max_off_duration"] = "Must be >= min_off_duration."
 
-        # earliest_on edge: exactly one of absolute or solar must be configured
-        if self.earliest_on_relative_to_sunset:
-            if self.earliest_on_offset is None:
-                errors["earliest_on_offset"] = (
-                    "Required when 'earliest on relative to sunset' is checked."
-                )
-        else:
-            if self.earliest_on is None:
-                errors["earliest_on"] = (
-                    "Required unless 'earliest on relative to sunset' is checked."
-                )
+        # The window-edge format itself is owned by the field validator
+        # (full_clean); the cross-field checks below skip a blank or
+        # malformed edge rather than duplicating that error.
+        def _edge(value: str) -> time | timedelta | None:
+            try:
+                return parse_window_edge(value)
+            except ValueError:
+                return None
 
-        # latest_off edge: same dichotomy
-        if self.latest_off_relative_to_sunrise:
-            if self.latest_off_offset is None:
-                errors["latest_off_offset"] = (
-                    "Required when 'latest off relative to sunrise' is checked."
-                )
-        else:
-            if self.latest_off is None:
-                errors["latest_off"] = (
-                    "Required unless 'latest off relative to sunrise' is checked."
-                )
+        open_edge = _edge(self.window_open)
+        close_edge = _edge(self.window_close)
 
         # If any solar edge, the presence's location must name a city (the city
         # moved to Location in issue #43). Reported as a non-field error since
         # the city is not edited on the presence form.
-        if self.earliest_on_relative_to_sunset or self.latest_off_relative_to_sunrise:
+        if isinstance(open_edge, timedelta) or isinstance(close_edge, timedelta):
             location = self.location if self.location_id else None
             if location is None or not location.city:
                 errors[NON_FIELD_ERRORS] = (
@@ -530,14 +561,12 @@ class Presence(models.Model):
 
         # absolute-vs-absolute zero-length check (still meaningful when both edges absolute)
         if (
-            not self.earliest_on_relative_to_sunset
-            and not self.latest_off_relative_to_sunrise
-            and self.earliest_on is not None
-            and self.latest_off is not None
-            and self.earliest_on == self.latest_off
+            isinstance(open_edge, time)
+            and isinstance(close_edge, time)
+            and open_edge == close_edge
         ):
-            errors["latest_off"] = (
-                "Must differ from earliest_on (a zero-length window is ambiguous)."
+            errors["window_close"] = (
+                "Must differ from window_open (a zero-length window is ambiguous)."
             )
 
         if errors:
@@ -553,17 +582,27 @@ class Presence(models.Model):
         city = lookup(self.location.city, database())
         return sun(city.observer, date=on_date, tzinfo=self._zone())
 
+    @property
+    def window_open_is_solar(self) -> bool:
+        """True when ``window_open`` is a signed offset from sunset."""
+        return (self.window_open or "").startswith(("+", "-"))
+
+    @property
+    def window_close_is_solar(self) -> bool:
+        """True when ``window_close`` is a signed offset from sunrise."""
+        return (self.window_close or "").startswith(("+", "-"))
+
     def _window_open_for_date(self, on_date: date) -> datetime:
-        zone = self._zone()
-        if self.earliest_on_relative_to_sunset:
-            return self._solar(on_date)["sunset"] + self.earliest_on_offset
-        return datetime.combine(on_date, self.earliest_on, tzinfo=zone)
+        edge = parse_window_edge(self.window_open)
+        if isinstance(edge, timedelta):
+            return self._solar(on_date)["sunset"] + edge
+        return datetime.combine(on_date, edge, tzinfo=self._zone())
 
     def _window_close_for_date(self, on_date: date) -> datetime:
-        zone = self._zone()
-        if self.latest_off_relative_to_sunrise:
-            return self._solar(on_date)["sunrise"] + self.latest_off_offset
-        return datetime.combine(on_date, self.latest_off, tzinfo=zone)
+        edge = parse_window_edge(self.window_close)
+        if isinstance(edge, timedelta):
+            return self._solar(on_date)["sunrise"] + edge
+        return datetime.combine(on_date, edge, tzinfo=self._zone())
 
     def _window_for_date(self, on_date: date) -> tuple[datetime, datetime]:
         """Return (open_dt, close_dt) for the window anchored on `on_date`.
