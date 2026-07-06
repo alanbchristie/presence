@@ -80,10 +80,10 @@ class PresenceForm(forms.ModelForm):
         labels = {
             "window_open": "Open",
             "window_close": "Close",
-            "min_on_duration": "Minimum",
-            "max_on_duration": "Maximum",
-            "min_off_duration": "Minimum",
-            "max_off_duration": "Maximum",
+            "min_on_duration": "Min",
+            "max_on_duration": "Max",
+            "min_off_duration": "Min",
+            "max_off_duration": "Max",
         }
 
     # Render the inline-create field directly after the access-key select.
