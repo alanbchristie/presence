@@ -3,11 +3,11 @@
 #   kubectl apply -f helm/namespace.yaml
 #   helm upgrade --install presence ./helm/presence --namespace presence ...
 #
-# This is an alternative to `helm --create-namespace`, for clusters where the
-# namespace is created (and labelled, quota'd, or policy-bound) separately
-# from the release. Either way the namespace is deliberately NOT part of the
-# chart, so `helm uninstall` removes the workload and leaves the namespace —
-# and the PersistentVolumeClaim holding the database — standing.
+# This is how the namespace is created — not `helm --create-namespace` — so
+# it can be labelled, quota'd or policy-bound independently of the release.
+# The namespace is deliberately NOT part of the chart either, so
+# `helm uninstall` removes the workload and leaves the namespace — and the
+# PersistentVolumeClaim holding the database — standing.
 apiVersion: v1
 kind: Namespace
 metadata:

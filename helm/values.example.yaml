@@ -1,0 +1,63 @@
+# Copy this file to helm/values.yaml (git-ignored, because it holds secrets)
+# and edit it, then install with:
+#
+#   kubectl apply -f helm/namespace.yaml
+#   helm upgrade --install presence ./helm/presence \
+#     --namespace presence -f helm/values.yaml
+#
+# Only values that differ from the chart's defaults need to appear here;
+# helm/presence/values.yaml documents every setting with its default.
+#
+# Prefer this to a pile of `--set` flags: the file is reviewable, it is the
+# same on every upgrade (a forgotten `--set` silently reverts that value to
+# its default), and it keeps secrets out of your shell history.
+
+django:
+  # REQUIRED — the app refuses to start without it. Generate one with:
+  #   python -c "from django.core.management.utils import \
+  #     get_random_secret_key; print(get_random_secret_key())"
+  secretKey: CHANGE-ME-generate-a-random-secret-key
+
+  superuser:
+    # Creates the `admin` login on first boot. Drop this to deploy with no
+    # admin account (you can add one later with `manage.py createsuperuser`).
+    password: CHANGE-ME-choose-a-strong-password
+
+postgresql:
+  # The database is only reachable inside the cluster, but set a strong value
+  # anyway:  openssl rand -hex 16
+  password: CHANGE-ME-choose-a-strong-password
+
+ingress:
+  enabled: true
+  # host defaults to presence.hopto.org, className to traefik — set them here
+  # if this deployment uses anything else.
+  annotations:
+    # cert-manager watches this and issues the certificate into the Secret
+    # named below. Use the name of an Issuer/ClusterIssuer you have already
+    # created.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    # cert-manager creates this Secret; it does not need to exist beforehand.
+    secretName: presence-tls
+
+# Traefik does not compress by default. This is the Kubernetes replacement
+# for the compose stack's Caddy `encode zstd gzip`.
+compression:
+  enabled: true
+
+# --- Alternative: keep secrets out of this file entirely -----------------
+#
+# Create the Secret yourself (or with a sealed-secrets/external-secrets
+# operator) and point the chart at it, instead of the three CHANGE-ME values
+# above:
+#
+#   kubectl create secret generic presence-secret \
+#     --namespace presence \
+#     --from-literal=django-secret-key='...' \
+#     --from-literal=db-password='...' \
+#     --from-literal=superuser-password='...'
+#
+# django:
+#   existingSecret: presence-secret

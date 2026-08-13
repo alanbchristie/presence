@@ -33,6 +33,10 @@ media/
 .env
 .env.*
 !.env.example
+# The Helm values for a real deployment (secret key, database and superuser
+# passwords). Anchored to the repo root so the chart's own committed
+# helm/presence/values.yaml is unaffected.
+/helm/values.yaml
 
 # --- Test / lint / type-check caches ---
 .pytest_cache/

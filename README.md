@@ -106,19 +106,50 @@ Container-only environment baked into `docker-compose.yml`:
 #62). The published image is multi-architecture — the release workflow builds
 `linux/amd64` and `linux/arm64` — so it runs unchanged on ARM k3s nodes.
 
+Configuration goes in a values file, the same way `.env` configures the
+compose stack. Copy the example, edit it, and install:
+
 ```
+cp helm/values.example.yaml helm/values.yaml     # then edit it
+kubectl apply -f helm/namespace.yaml
 helm upgrade --install presence ./helm/presence \
-  --namespace presence --create-namespace \
-  --set django.secretKey="$(python -c 'from django.core.management.utils \
-    import get_random_secret_key; print(get_random_secret_key())')" \
-  --set postgresql.password="$(openssl rand -hex 16)" \
-  --set django.superuser.password='choose-something-strong' \
-  --set ingress.enabled=true
+  --namespace presence -f helm/values.yaml
 ```
 
-The ingress defaults to `presence.hopto.org` on the `traefik` class (k3s's
-built-in controller), so only `ingress.enabled` needs setting for this
-deployment; pass `--set ingress.host=...` for any other.
+`helm/values.yaml` is git-ignored, because it holds the secret key and the
+database and superuser passwords. (`helm/presence/values.yaml` — the chart's
+own defaults — is a different file and stays committed.)
+
+Prefer this to a pile of `--set` flags. The file is reviewable, it keeps
+secrets out of your shell history, and it is the same on every upgrade —
+whereas a `--set` you forget to repeat silently reverts that value to its
+default. To keep the secrets out of the file too, create the Secret yourself
+and set `django.existingSecret`; the example file shows how.
+
+A minimal file for this deployment, which is what `helm/values.example.yaml`
+contains:
+
+```yaml
+django:
+  secretKey: ...                 # required; the app will not start without it
+  superuser:
+    password: ...                # creates the `admin` login on first boot
+postgresql:
+  password: ...
+ingress:
+  enabled: true                  # host/class already default to
+  annotations:                   # presence.hopto.org on traefik
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: presence-tls     # cert-manager creates this
+compression:
+  enabled: true
+```
+
+Everything else comes from the chart's defaults. Overriding one value at
+install time is still fine — `--set image.tag=3.0.2` on top of `-f` works,
+and `-f` can be repeated to layer a per-environment file over a common one.
 
 That creates the web Deployment, the runner Deployment, a single-instance
 PostgreSQL StatefulSet with a PVC, a Secret, a Service and (optionally) an
