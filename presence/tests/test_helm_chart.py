@@ -145,6 +145,66 @@ def test_default_image_tag_is_a_published_release():
     )
 
 
+EXAMPLE_VALUES = REPO_ROOT / "helm" / "values.example.yaml"
+
+
+def test_example_values_file_is_a_usable_starting_point():
+    """The documented `-f` workflow must actually render.
+
+    An example that does not work is worse than none, so this installs it
+    exactly as the README says to: chart defaults overlaid with the example.
+    """
+    assert EXAMPLE_VALUES.is_file(), "helm/values.example.yaml must exist"
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(
+            subprocess.run(
+                ["helm", "template", "presence", str(CHART),
+                 "--kube-version", KUBE_VERSION,
+                 # Note: no BASE_ARGS — the example must stand on its own.
+                 "-f", str(EXAMPLE_VALUES)],
+                capture_output=True, text=True, timeout=120, check=True,
+            ).stdout
+        )
+        if doc
+    ]
+    # It should demonstrate the deployment's actual shape, not the bare
+    # defaults: published over TLS, compressed, with an admin login.
+    assert by_kind(docs, "Ingress")
+    assert by_kind(docs, "Middleware")
+    web = one(docs, "Deployment", "-web")
+    container = web["spec"]["template"]["spec"]["containers"][0]
+    assert "DJANGO_SUPERUSER_PASSWORD" in env_refs(container)
+
+
+def test_example_values_secrets_are_obvious_placeholders():
+    """Nobody should be able to deploy the example's secrets by accident."""
+    values = yaml.safe_load(EXAMPLE_VALUES.read_text())
+    secrets = [
+        values["django"]["secretKey"],
+        values["django"]["superuser"]["password"],
+        values["postgresql"]["password"],
+    ]
+    for secret in secrets:
+        assert "CHANGE-ME" in secret, f"{secret!r} does not demand replacing"
+
+
+def test_the_operators_own_values_file_is_not_committed():
+    """The real file holds secrets, so it must be git-ignored...
+
+    ...but the *chart's* own values.yaml must never be caught by that rule.
+    """
+    def ignored(path):
+        return subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            cwd=REPO_ROOT, timeout=30,
+        ).returncode == 0
+
+    assert ignored("helm/values.yaml")
+    assert not ignored("helm/values.example.yaml")
+    assert not ignored("helm/presence/values.yaml")
+
+
 def test_chart_lints_cleanly():
     result = subprocess.run(
         ["helm", "lint", str(CHART), "--kube-version", KUBE_VERSION,
