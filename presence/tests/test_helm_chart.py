@@ -123,7 +123,8 @@ def test_chart_metadata_is_present():
 
 def test_chart_lints_cleanly():
     result = subprocess.run(
-        ["helm", "lint", str(CHART), *BASE_ARGS],
+        ["helm", "lint", str(CHART), "--kube-version", KUBE_VERSION,
+         *BASE_ARGS],
         capture_output=True,
         text=True,
         timeout=120,
@@ -134,13 +135,28 @@ def test_chart_lints_cleanly():
 def test_secret_key_is_required():
     """Rendering without a secret key (or an existing Secret) must fail."""
     result = subprocess.run(
-        ["helm", "template", "presence", str(CHART)],
+        # Note: no BASE_ARGS, so no secret key is supplied.
+        ["helm", "template", "presence", str(CHART),
+         "--kube-version", KUBE_VERSION],
         capture_output=True,
         text=True,
         timeout=120,
     )
     assert result.returncode != 0
     assert "secretKey" in result.stdout + result.stderr
+
+
+def test_chart_declares_its_kubernetes_floor():
+    """The chart targets v1.36+; older clusters must be refused up front."""
+    result = subprocess.run(
+        ["helm", "template", "presence", str(CHART),
+         "--kube-version", "1.35.0", *BASE_ARGS],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode != 0
+    assert "kubeVersion" in result.stdout + result.stderr
 
 
 # --- the runner invariant ------------------------------------------------
@@ -278,15 +294,18 @@ def test_no_ingress_unless_enabled():
     assert not by_kind(render(), "Ingress")
 
 
-def test_secrets_are_not_baked_into_the_configmap():
+def test_no_sensitive_value_appears_outside_the_secret():
     docs = render(
         "--set", "django.secretKey=super-secret-value",
         "--set", "postgresql.password=pg-secret-value",
         "--set", "django.superuser.password=admin-secret-value",
         "--set", "w3w.apiKey=w3w-secret-value",
     )
-    for configmap in by_kind(docs, "ConfigMap"):
-        rendered = json.dumps(configmap)
+    assert by_kind(docs, "Secret"), "secrets must be held in a Secret"
+    for doc in docs:
+        if doc.get("kind") == "Secret":
+            continue
+        rendered = json.dumps(doc)
         for leaked in (
             "super-secret-value",
             "pg-secret-value",
@@ -294,10 +313,9 @@ def test_secrets_are_not_baked_into_the_configmap():
             "w3w-secret-value",
         ):
             assert leaked not in rendered, (
-                f"{leaked!r} leaked into ConfigMap "
-                f"{configmap['metadata']['name']}"
+                f"{leaked!r} leaked into "
+                f"{doc['kind']}/{doc['metadata']['name']}"
             )
-    assert by_kind(docs, "Secret"), "secrets must be held in a Secret"
 
 
 def test_sensitive_env_comes_from_the_secret():

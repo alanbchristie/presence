@@ -1,0 +1,114 @@
+{{/*
+The web role: Django behind gunicorn, and the single owner of `migrate`
+(entrypoint.sh runs migrate/createsuperuser/collectstatic for the web roles
+only, so nothing else in the release may apply migrations).
+
+replicas is pinned to 1 and the strategy is Recreate rather than the default
+RollingUpdate. Both follow from the rate limiter: presence/ratelimit.py
+counts failed logins and API attempts in an in-process LocMemCache, which is
+only coherent within one process. A second replica — including the extra pod
+a rolling update would surge — would give a caller two independent budgets.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "presence.fullname" . }}-web
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "presence.selectorLabels" (dict "ctx" . "component" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "presence.labels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (include "presence.scheduling" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+      - name: web
+        image: {{ include "presence.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- with .Values.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+        {{- include "presence.commonEnv" . | nindent 8 }}
+        - name: PRESENCE_SERVER
+          value: "gunicorn"
+        # The dedicated runner Deployment owns the state-machine loop, so the
+        # web pod must not also spawn the in-process runner thread.
+        - name: PRESENCE_RUN_RUNNER
+          value: "false"
+        - name: DJANGO_ALLOWED_HOSTS
+          value: {{ include "presence.allowedHosts" . | quote }}
+        - name: DJANGO_CSRF_TRUSTED_ORIGINS
+          value: {{ include "presence.csrfTrustedOrigins" . | quote }}
+        {{- if or .Values.django.superuser.password .Values.django.existingSecret }}
+        - name: DJANGO_SUPERUSER_USERNAME
+          value: {{ .Values.django.superuser.username | quote }}
+        - name: DJANGO_SUPERUSER_EMAIL
+          value: {{ .Values.django.superuser.email | quote }}
+        - name: DJANGO_SUPERUSER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "presence.secretName" . }}
+              key: superuser-password
+              # Absent from the Secret means "no superuser": the entrypoint
+              # skips createsuperuser when the variable is unset.
+              optional: true
+        {{- end }}
+        {{- if .Values.w3w.apiKey }}
+        - name: W3W_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "presence.secretName" . }}
+              key: w3w-api-key
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        {{- $probe := dict "httpGet" (dict "path" "/login/" "port" "http" "httpHeaders" (list (dict "name" "Host" "value" (include "presence.probeHost" .)))) }}
+        {{/*
+        Probes address the pod by IP, which ALLOWED_HOSTS rejects with a 400,
+        so they send an allowed Host header instead. With DEBUG off the app
+        answers plain HTTP with a 301 to https — still a pass, since kubelet
+        treats any 2xx/3xx as success.
+        */}}
+        startupProbe:
+          {{- toYaml $probe | nindent 10 }}
+          periodSeconds: {{ .Values.web.startupProbe.periodSeconds }}
+          failureThreshold: {{ .Values.web.startupProbe.failureThreshold }}
+        readinessProbe:
+          {{- toYaml $probe | nindent 10 }}
+          periodSeconds: {{ .Values.web.readinessProbe.periodSeconds }}
+          failureThreshold: {{ .Values.web.readinessProbe.failureThreshold }}
+        livenessProbe:
+          {{- toYaml $probe | nindent 10 }}
+          periodSeconds: {{ .Values.web.livenessProbe.periodSeconds }}
+          failureThreshold: {{ .Values.web.livenessProbe.failureThreshold }}
+        {{- with .Values.web.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}

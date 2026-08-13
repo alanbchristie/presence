@@ -1,0 +1,22 @@
+apiVersion: v2
+name: presence
+description: Django app that simulates on/off presence within a daily window.
+type: application
+
+# Chart version (semver, no "v" prefix). Bump this for chart changes;
+# appVersion tracks the application image the chart defaults to.
+version: 0.1.0
+appVersion: "1.0.1"
+
+# Issue #62 targets Kubernetes v1.36 and beyond (k3s on ARM).
+kubeVersion: ">=1.36.0-0"
+
+home: https://github.com/alanbchristie/presence
+sources:
+- https://github.com/alanbchristie/presence
+maintainers:
+- name: Alan B. Christie
+keywords:
+- django
+- presence
+- home-automation

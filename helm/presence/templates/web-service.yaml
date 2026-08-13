@@ -1,0 +1,21 @@
+{{/*
+Fronts the web pods only. The component selector matters: the runner pods
+carry the same name/instance labels but serve no HTTP, so a looser selector
+would send them traffic that never gets answered.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "presence.fullname" . }}-web
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  type: {{ .Values.web.service.type }}
+  ports:
+  - name: http
+    port: {{ .Values.web.service.port }}
+    targetPort: http
+    protocol: TCP
+  selector:
+    {{- include "presence.selectorLabels" (dict "ctx" . "component" "web") | nindent 4 }}

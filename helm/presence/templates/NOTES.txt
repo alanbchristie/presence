@@ -1,0 +1,42 @@
+{{ .Chart.Name }} {{ .Chart.Version }} — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Image: {{ include "presence.image" . }}
+Database: {{ include "presence.db.host" . }}:{{ include "presence.db.port" . }}/{{ include "presence.db.name" . }}{{ if .Values.postgresql.enabled }} (bundled){{ else }} (external){{ end }}
+
+Watch it come up:
+
+  kubectl --namespace {{ .Release.Namespace }} rollout status \
+    deployment/{{ include "presence.fullname" . }}-web
+  kubectl --namespace {{ .Release.Namespace }} rollout status \
+    deployment/{{ include "presence.fullname" . }}-runner
+
+The web pod applies migrations on boot; the runner waits for them before it
+starts driving the state machine.
+
+Reach the app:
+{{- if .Values.ingress.enabled }}
+
+  {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+{{- else }}
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward \
+    svc/{{ include "presence.fullname" . }}-web 8000:{{ .Values.web.service.port }}
+
+  ...then browse http://localhost:8000/ (no ingress is configured; set
+  ingress.enabled=true to publish it).
+{{- end }}
+{{- if not .Values.django.superuser.password }}
+{{- if not .Values.django.existingSecret }}
+
+No superuser was created (django.superuser.password is unset). Create one:
+
+  kubectl --namespace {{ .Release.Namespace }} exec -it \
+    deployment/{{ include "presence.fullname" . }}-web -- \
+    python manage.py createsuperuser
+{{- end }}
+{{- end }}
+{{- if not .Values.ingress.tls.enabled }}
+
+NOTE: with DEBUG off the app sets secure cookies and redirects to HTTPS, so
+serve it over TLS in anything but a throwaway cluster.
+{{- end }}

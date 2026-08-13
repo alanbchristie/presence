@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled }}
+{{/*
+The app sits behind the ingress controller (Traefik on k3s), which
+terminates TLS. Django trusts its X-Forwarded-Proto via
+SECURE_PROXY_SSL_HEADER, so is_secure() is true and SECURE_SSL_REDIRECT
+does not loop — the same arrangement the Caddy sidecar uses in compose,
+and safe for the same reason: the controller is the only way in.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "presence.fullname" . }}
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+  - hosts:
+    - {{ .Values.ingress.host | quote }}
+    secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled is true" .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+  - host: {{ .Values.ingress.host | quote }}
+    http:
+      paths:
+      - path: {{ .Values.ingress.path }}
+        pathType: {{ .Values.ingress.pathType }}
+        backend:
+          service:
+            name: {{ include "presence.fullname" . }}-web
+            port:
+              name: http
+{{- end }}
