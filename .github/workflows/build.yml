@@ -58,6 +58,10 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+        with:
+          # Tags, so test_helm_chart.py can check the chart's default image
+          # tag against the newest release rather than skipping.
+          fetch-depth: 0
 
       - name: Install uv
         # Pinned to a full version: setup-uv publishes no moving `v8` major
