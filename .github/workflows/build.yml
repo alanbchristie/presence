@@ -66,6 +66,11 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Install helm
+        # test_helm_chart.py renders helm/presence and asserts the deployment
+        # invariants; without helm on PATH the whole module skips silently.
+        uses: azure/setup-helm@v4
+
       - name: Install dependencies
         run: uv sync --group dev
 
@@ -82,3 +87,51 @@ jobs:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  helm:
+    name: Validate Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint the chart
+        # --kube-version because the chart declares a floor of 1.36 and helm's
+        # built-in default is older, which lint would otherwise reject.
+        run: helm lint helm/presence --kube-version 1.36.0
+             --set django.secretKey=ci-lint-not-a-real-secret
+
+      - name: Install kubeconform
+        # Validates rendered manifests against the real Kubernetes schemas
+        # without needing a cluster (unlike `kubectl --dry-run`).
+        run: |
+          curl -sSL \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Render and validate every value permutation
+        # The chart's branches — bundled vs external database, ingress on/off,
+        # own vs existing Secret — each render different objects, so validate
+        # them all rather than only the defaults.
+        run: |
+          set -euo pipefail
+          key="--set django.secretKey=ci-render-not-a-real-secret"
+          declare -a cases=(
+            "$key"
+            "$key --set postgresql.persistence.enabled=false"
+            "$key --set ingress.enabled=true --set ingress.tls.enabled=true --set ingress.tls.secretName=presence-tls"
+            "$key --set django.superuser.password=ci-not-a-real-password --set w3w.apiKey=ci-not-a-real-key"
+            "$key --set postgresql.enabled=false --set externalDatabase.host=db.example --set externalDatabase.password=ci-not-a-real-password"
+            "--set django.existingSecret=presence-secret"
+            "$key --set nodeSelector.kubernetes\\.io/arch=arm64"
+          )
+          for case in "${cases[@]}"; do
+            echo "::group::helm template $case"
+            # shellcheck disable=SC2086
+            helm template presence helm/presence --kube-version 1.36.0 $case \
+              | kubeconform -strict -summary -kubernetes-version 1.36.0 -
+            echo "::endgroup::"
+          done

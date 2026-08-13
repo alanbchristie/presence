@@ -52,7 +52,7 @@ server. Tests pin in-memory SQLite in `settings_test.py`.
 over enabled `Presence` rows, flips their `current_state` between on/off, and
 persists `current_state` / `state_since` / `next_transition_at` so the admin
 shows live state. **Exactly one runner process may drive a given database.**
-It runs in one of two places:
+It runs in one of three places:
 
 - **Dedicated `runner` container** (docker-compose default): `entrypoint.sh`
   execs `manage.py run_runner` (`presence/management/commands/run_runner.py`),
@@ -60,6 +60,9 @@ It runs in one of two places:
   `docker stop` shuts it down cleanly. The web container sets
   `PRESENCE_RUN_RUNNER=false` so it never also spawns the in-process thread.
   Never scale `runner` beyond one replica.
+- **`presence-runner` Deployment** (the Helm chart, issue #62): the same
+  image and role, pinned to `replicas: 1` with the `Recreate` strategy so a
+  rolling update's surge pod cannot briefly run a second state machine.
 - **In-process daemon thread** (plain `runserver` local dev): started from
   `PresenceConfig.ready()` (`apps.py`) via `runner.start()`, gated by
   `PRESENCE_RUN_RUNNER` (default true) and `runner._should_start()` (long-
@@ -74,7 +77,23 @@ the worker count without it.
 Existing SQLite deployments migrate their data once via
 `scripts/sqlite_to_postgres.sh` (dump/load/counts; see README "Migrating
 from SQLite"). `migrate` has a single owner — the web entrypoint; the runner
-container deliberately skips it to avoid a concurrent-migrate race.
+container deliberately skips it to avoid a concurrent-migrate race. Under
+Helm the runner's init container waits on the read-only `migrate --check`
+instead, which is the Kubernetes equivalent of compose's `depends_on: web
+condition: service_healthy`.
+
+### Kubernetes (Helm)
+
+`helm/presence` deploys the same two roles to Kubernetes v1.36+ (ARM k3s is
+the target; the released image is built for `linux/amd64` and `linux/arm64`).
+Both replica counts are **hard-coded to 1 in the templates**, not exposed as
+values — `web.replicaCount`/`runner.replicaCount` exist only to document
+that — and both Deployments use `Recreate`. `presence/tests/test_helm_chart.py`
+renders the chart with `helm template` and asserts these invariants, so they
+fail loudly if someone parameterises them; CI additionally lints the chart and
+validates every value permutation with kubeconform (the `helm` job of
+`.github/workflows/build.yml`). Chart-facing config follows the same pattern
+as the rest: env var → `settings.py` → `values.yaml` → the pod's env.
 
 State-machine rules live in `runner._evaluate()`. Two non-obvious behaviors that
 must be preserved when editing it:

@@ -100,6 +100,70 @@ Container-only environment baked into `docker-compose.yml`:
 - `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]`
 - `DJANGO_SUPERUSER_*` — auto-creates the `admin/admin` superuser on first boot.
 
+## Deploying to Kubernetes (k3s)
+
+`helm/presence` is a Helm chart for Kubernetes **v1.36 and later** (issue
+#62). The published image is multi-architecture — the release workflow builds
+`linux/amd64` and `linux/arm64` — so it runs unchanged on ARM k3s nodes.
+
+```
+helm upgrade --install presence ./helm/presence \
+  --namespace presence --create-namespace \
+  --set django.secretKey="$(python -c 'from django.core.management.utils \
+    import get_random_secret_key; print(get_random_secret_key())')" \
+  --set postgresql.password="$(openssl rand -hex 16)" \
+  --set django.superuser.password='choose-something-strong' \
+  --set ingress.enabled=true \
+  --set ingress.host=presence.example.com
+```
+
+That creates the web Deployment, the runner Deployment, a single-instance
+PostgreSQL StatefulSet with a PVC, a Secret, a Service and (optionally) an
+Ingress. `helm/presence/values.yaml` documents every value; the ones you are
+most likely to change:
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `django.secretKey` | — | **Required.** The app refuses to boot without it. |
+| `django.existingSecret` | `""` | Use a Secret you manage instead (keys: `django-secret-key`, `db-password`, `superuser-password`, `w3w-api-key`). |
+| `django.superuser.password` | `""` | Creates the `admin` superuser on first boot. Unset means no admin login. |
+| `image.tag` | chart `appVersion` | Which published tag to run. |
+| `ingress.enabled` / `ingress.host` | `false` / `presence.local` | Publish via the cluster ingress (k3s: Traefik). The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
+| `ingress.tls.enabled` / `ingress.tls.secretName` | `false` / `""` | Serve HTTPS from an existing certificate Secret (e.g. issued by cert-manager). |
+| `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
+| `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
+| `nodeSelector` | `{}` | Pin the pods, e.g. `kubernetes.io/arch: arm64` on a mixed cluster. |
+
+**Serve it over TLS.** With `DJANGO_DEBUG` off — the default, and the only
+sane setting for a cluster — the app sets secure cookies and redirects HTTP
+to HTTPS, so a plain-HTTP ingress will bounce browsers to a port nothing is
+listening on. Traefik terminating TLS is enough: Django trusts its
+`X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), exactly as it trusts Caddy's
+in the compose stack.
+
+### What the chart will not let you scale
+
+Two replica counts are pinned to `1` in the templates rather than exposed as
+working values, because raising either one breaks the application:
+
+- **The runner.** Exactly one runner process may drive a given database;
+  two would fight over every presence row's `current_state` and
+  `next_transition_at`.
+- **The web role.** The failed-login/API rate limiter counts attempts in an
+  in-process `LocMemCache`, so a second replica would hand a caller a second
+  independent budget. (This is the same constraint that keeps gunicorn at
+  `--workers 1`.)
+
+Both Deployments therefore also use the `Recreate` update strategy: the
+default `RollingUpdate` briefly runs an extra pod, which is precisely what
+must not happen. A shared cache backend is the prerequisite for scaling the
+web role — until then, don't.
+
+Migrations keep the single owner they have under compose: the web pod's
+entrypoint runs them, and the runner pod's init container *waits* for them
+with the read-only `manage.py migrate --check` rather than applying them
+itself.
+
 ## Migrating from SQLite
 
 Before issue #47 the compose stack stored everything in a SQLite file on the
@@ -256,6 +320,7 @@ uv.lock
 Dockerfile
 docker-compose.yml
 entrypoint.sh           # per-role startup: web pre-steps + server / run_runner
+helm/presence/          # Helm chart (Kubernetes v1.36+, ARM-friendly k3s)
 scripts/                # sqlite_to_postgres.sh one-time data migration
 .env.example
 presence_site/          # Django project (settings, urls)
@@ -272,7 +337,7 @@ presence/               # The app
 
 ## Caveats
 
-- Exactly **one** runner process may drive the state machine per database. Docker Compose satisfies this with the dedicated `runner` container (the web container's in-process thread is gated off with `PRESENCE_RUN_RUNNER=false`); plain `runserver` satisfies it with one in-process thread. Never run both, or scale `runner` beyond one replica — the copies race on the same rows.
+- Exactly **one** runner process may drive the state machine per database. Docker Compose satisfies this with the dedicated `runner` container (the web container's in-process thread is gated off with `PRESENCE_RUN_RUNNER=false`); the Helm chart with a one-replica `Recreate` Deployment; plain `runserver` with one in-process thread. Never run both, or scale `runner` beyond one replica — the copies race on the same rows.
 - The web container stays **single-worker** because the rate limiter's in-process cache is only coherent within one process; a shared cache backend is the remaining prerequisite for multi-worker web.
 - Outside Docker (no `DJANGO_DB_HOST`) the database is a local SQLite file — fine for development; deployments get PostgreSQL via compose.
 - Solar windows depend on astral's built-in city database (~390 cities). Names are validated against that database when a row is saved.
