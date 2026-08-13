@@ -333,6 +333,18 @@ def test_ingress_host_reaches_allowed_hosts_and_csrf_origins():
     )
 
 
+def test_ingress_defaults_to_the_deployment_host_on_traefik():
+    """The chart ships this deployment's own defaults, not placeholders."""
+    docs = render("--set", "ingress.enabled=true")
+    ingress = one(docs, "Ingress")
+    assert ingress["spec"]["ingressClassName"] == "traefik"
+    assert ingress["spec"]["rules"][0]["host"] == "presence.hopto.org"
+
+    web = one(docs, "Deployment", "-web")
+    env = container_env(web["spec"]["template"]["spec"]["containers"][0])
+    assert "presence.hopto.org" in env["DJANGO_ALLOWED_HOSTS"].split(",")
+
+
 def test_no_ingress_unless_enabled():
     assert not by_kind(render(), "Ingress")
 

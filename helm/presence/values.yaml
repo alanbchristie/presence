@@ -107,9 +107,13 @@ runner:
 
 ingress:
   enabled: false
-  # k3s ships Traefik as the default ingress controller.
+  # k3s ships Traefik as the default ingress controller, which is what this
+  # deployment uses.
   className: traefik
-  host: presence.local
+  # The public hostname this deployment is published under. Django's
+  # ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS are derived from it, so change it
+  # here rather than setting those by hand.
+  host: presence.hopto.org
   path: /
   pathType: Prefix
   annotations: {}

@@ -113,9 +113,12 @@ helm upgrade --install presence ./helm/presence \
     import get_random_secret_key; print(get_random_secret_key())')" \
   --set postgresql.password="$(openssl rand -hex 16)" \
   --set django.superuser.password='choose-something-strong' \
-  --set ingress.enabled=true \
-  --set ingress.host=presence.example.com
+  --set ingress.enabled=true
 ```
+
+The ingress defaults to `presence.hopto.org` on the `traefik` class (k3s's
+built-in controller), so only `ingress.enabled` needs setting for this
+deployment; pass `--set ingress.host=...` for any other.
 
 That creates the web Deployment, the runner Deployment, a single-instance
 PostgreSQL StatefulSet with a PVC, a Secret, a Service and (optionally) an
@@ -127,8 +130,9 @@ most likely to change:
 | `django.secretKey` | — | **Required.** The app refuses to boot without it. |
 | `django.existingSecret` | `""` | Use a Secret you manage instead (keys: `django-secret-key`, `db-password`, `superuser-password`, `w3w-api-key`). |
 | `django.superuser.password` | `""` | Creates the `admin` superuser on first boot. Unset means no admin login. |
-| `image.tag` | chart `appVersion` | Which published tag to run. |
-| `ingress.enabled` / `ingress.host` | `false` / `presence.local` | Publish via the cluster ingress (k3s: Traefik). The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
+| `image.tag` | chart `appVersion` (`3.0.1`) | Which published tag to run. |
+| `ingress.enabled` / `ingress.host` | `false` / `presence.hopto.org` | Publish via the cluster ingress. The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
+| `ingress.className` | `traefik` | k3s's built-in ingress controller. |
 | `ingress.tls.enabled` / `ingress.tls.secretName` | `false` / `""` | Serve HTTPS from an existing certificate Secret (e.g. issued by cert-manager). |
 | `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
 | `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
