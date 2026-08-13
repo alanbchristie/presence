@@ -131,11 +131,18 @@ jobs:
             "$key --set postgresql.enabled=false --set externalDatabase.host=db.example --set externalDatabase.password=ci-not-a-real-password"
             "--set django.existingSecret=presence-secret"
             "$key --set nodeSelector.kubernetes\\.io/arch=arm64"
+            "$key --set ingress.enabled=true --set compression.enabled=true"
           )
+          # The compression case renders a Traefik CRD, which the built-in
+          # schemas do not cover. The CRDs-catalog location supplies it, so
+          # it is validated properly rather than skipped with
+          # -ignore-missing-schemas (which would also hide a typo'd core kind).
+          crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           for case in "${cases[@]}"; do
             echo "::group::helm template $case"
             # shellcheck disable=SC2086
             helm template presence helm/presence --kube-version 1.36.0 $case \
-              | kubeconform -strict -summary -kubernetes-version 1.36.0 -
+              | kubeconform -strict -summary -kubernetes-version 1.36.0 \
+                  -schema-location default -schema-location "$crds" -
             echo "::endgroup::"
           done

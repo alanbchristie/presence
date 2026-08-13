@@ -134,6 +134,7 @@ most likely to change:
 | `ingress.enabled` / `ingress.host` | `false` / `presence.hopto.org` | Publish via the cluster ingress. The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
 | `ingress.className` | `traefik` | k3s's built-in ingress controller. |
 | `ingress.tls.enabled` / `ingress.tls.secretName` | `false` / `""` | Serve HTTPS from an existing certificate Secret (e.g. issued by cert-manager). |
+| `compression.enabled` | `false` | Compress responses via a Traefik `compress` middleware. Requires Traefik's CRDs. |
 | `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
 | `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
 | `nodeSelector` | `{}` | Pin the pods, e.g. `kubernetes.io/arch: arm64` on a mixed cluster. |
@@ -144,6 +145,48 @@ to HTTPS, so a plain-HTTP ingress will bounce browsers to a port nothing is
 listening on. Traefik terminating TLS is enough: Django trusts its
 `X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), exactly as it trusts Caddy's
 in the compose stack.
+
+### TLS and compression (replacing the Caddy sidecar)
+
+In Kubernetes, Traefik and cert-manager between them do everything the
+compose stack's Caddy sidecar does — the chart deploys no Caddy, and the
+`tls` compose profile is only for the non-Kubernetes deployment.
+
+| Caddy's job (`Caddyfile`) | Kubernetes equivalent |
+| --- | --- |
+| Let's Encrypt issuance and renewal | cert-manager |
+| TLS termination, `reverse_proxy web:8000` | Traefik, via this chart's Ingress |
+| `encode zstd gzip` | `compression.enabled=true` (see below) |
+
+`SECURE_PROXY_SSL_HEADER` needs no change: Traefik sets `X-Forwarded-Proto`
+exactly as Caddy does, so `request.is_secure()` is true and
+`SECURE_SSL_REDIRECT` does not loop.
+
+With cert-manager, name your issuer and the Secret it should create:
+
+```yaml
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: presence-tls    # cert-manager creates this
+compression:
+  enabled: true
+```
+
+`compression.enabled` renders a Traefik `Middleware`
+(`traefik.io/v1alpha1`, the v3 API group) and references it from the Ingress
+with a `traefik.ingress.kubernetes.io/router.middlewares` annotation. It is
+opt-in because that CRD only exists on Traefik clusters, and it requires
+`ingress.enabled` — the chart refuses to render otherwise, rather than
+producing a middleware nothing uses. Any middleware reference you set
+yourself is appended to, not overwritten.
+
+Static files are compressed either way: whitenoise pre-compresses them
+during `collectstatic` and serves them with the matching `Content-Encoding`.
+This setting adds compression for the dynamic HTML.
 
 ### What the chart will not let you scale
 

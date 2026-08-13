@@ -12,9 +12,9 @@ metadata:
   name: {{ include "presence.fullname" . }}
   labels:
     {{- include "presence.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with (include "presence.ingressAnnotations" . | trim) }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- . | nindent 4 }}
   {{- end }}
 spec:
   {{- with .Values.ingress.className }}

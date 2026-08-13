@@ -345,6 +345,79 @@ def test_ingress_defaults_to_the_deployment_host_on_traefik():
     assert "presence.hopto.org" in env["DJANGO_ALLOWED_HOSTS"].split(",")
 
 
+MIDDLEWARE_ANNOTATION = "traefik.ingress.kubernetes.io/router.middlewares"
+
+
+def test_no_compression_middleware_unless_enabled():
+    """Off by default: the Middleware CRD only exists on Traefik clusters."""
+    docs = render("--set", "ingress.enabled=true")
+    assert not by_kind(docs, "Middleware")
+    ingress = one(docs, "Ingress")
+    assert MIDDLEWARE_ANNOTATION not in (
+        ingress["metadata"].get("annotations") or {}
+    )
+
+
+def test_compression_renders_a_traefik_middleware_and_wires_it_up():
+    """Replaces the compose stack's Caddy `encode zstd gzip`."""
+    docs = render(
+        "--set", "ingress.enabled=true",
+        "--set", "compression.enabled=true",
+    )
+    middleware = one(docs, "Middleware")
+    # The Traefik v3 API group; v2's traefik.containo.us is long gone.
+    assert middleware["apiVersion"] == "traefik.io/v1alpha1"
+    assert "compress" in middleware["spec"]
+
+    # ...and the Ingress must actually reference it, or it does nothing.
+    ingress = one(docs, "Ingress")
+    ref = ingress["metadata"]["annotations"][MIDDLEWARE_ANNOTATION]
+    assert ref.endswith("@kubernetescrd")
+    assert middleware["metadata"]["name"] in ref
+
+
+def test_compression_options_are_configurable():
+    docs = render(
+        "--set", "ingress.enabled=true",
+        "--set", "compression.enabled=true",
+        "--set", "compression.minResponseBodyBytes=2048",
+        "--set", "compression.encodings={gzip}",
+    )
+    compress = one(docs, "Middleware")["spec"]["compress"]
+    assert compress["minResponseBodyBytes"] == 2048
+    assert compress["encodings"] == ["gzip"]
+
+
+def test_compression_annotation_does_not_clobber_the_operators_own():
+    """The annotation is a comma-separated list, so ours must append."""
+    docs = render(
+        "--set", "ingress.enabled=true",
+        "--set", "compression.enabled=true",
+        "--set", "ingress.annotations.cert-manager\\.io/cluster-issuer=le",
+        "--set", f"ingress.annotations.{MIDDLEWARE_ANNOTATION.replace('.', '\\.')}=myauth@kubernetescrd",
+    )
+    annotations = one(docs, "Ingress")["metadata"]["annotations"]
+    # An unrelated annotation (e.g. cert-manager's) survives untouched.
+    assert annotations["cert-manager.io/cluster-issuer"] == "le"
+    refs = annotations[MIDDLEWARE_ANNOTATION].split(",")
+    assert "myauth@kubernetescrd" in refs
+    assert any(r.endswith("-compress@kubernetescrd") for r in refs)
+
+
+def test_compression_without_an_ingress_is_refused():
+    """It works by annotating the Ingress, so it cannot act without one."""
+    result = subprocess.run(
+        ["helm", "template", "presence", str(CHART),
+         "--kube-version", KUBE_VERSION, *BASE_ARGS,
+         "--set", "compression.enabled=true"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode != 0
+    assert "ingress" in (result.stdout + result.stderr).lower()
+
+
 def test_no_ingress_unless_enabled():
     assert not by_kind(render(), "Ingress")
 

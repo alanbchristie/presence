@@ -123,6 +123,27 @@ ingress:
     # in which case add the issuer annotation to ingress.annotations).
     secretName: ""
 
+# Response compression, the Kubernetes equivalent of the compose stack's
+# Caddy `encode zstd gzip`. Traefik does not compress by default.
+#
+# Off by default because it renders a Traefik-specific Middleware CRD, which
+# a cluster running a different ingress controller will not have. It requires
+# ingress.enabled (it works by annotating the Ingress) and rendering fails if
+# you enable one without the other.
+#
+# Note that static files are already compressed regardless: whitenoise
+# pre-compresses them during collectstatic and serves them with the matching
+# Content-Encoding. This adds compression for the dynamic HTML.
+compression:
+  enabled: false
+  # Traefik negotiates the first of these the client accepts.
+  encodings:
+  - gzip
+  - br
+  - zstd
+  # Responses smaller than this are sent uncompressed.
+  minResponseBodyBytes: 1024
+
 # Bundled single-instance PostgreSQL. Disable it to use an external server
 # and fill in `externalDatabase` instead.
 postgresql:

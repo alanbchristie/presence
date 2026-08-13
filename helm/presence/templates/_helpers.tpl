@@ -64,6 +64,34 @@ the operator's own (django.existingSecret).
 {{- end }}
 {{- end }}
 
+{{- define "presence.compressionName" -}}
+{{- printf "%s-compress" (include "presence.fullname" .) }}
+{{- end }}
+
+{{/*
+Annotations for the Ingress: the operator's own, plus the compress
+middleware reference when that is enabled.
+
+The middleware is named `<namespace>/<name>@kubernetescrd` — the explicit
+cross-namespace form, so resolution never depends on where Traefik thinks
+the route lives. The annotation's value is a comma-separated list, so an
+operator-supplied reference (an auth middleware, say) is appended to rather
+than overwritten.
+*/}}
+{{- define "presence.ingressAnnotations" -}}
+{{- $annotations := deepCopy (default dict .Values.ingress.annotations) -}}
+{{- if .Values.compression.enabled -}}
+{{- $key := "traefik.ingress.kubernetes.io/router.middlewares" -}}
+{{- $ref := printf "%s/%s@kubernetescrd" .Release.Namespace (include "presence.compressionName" .) -}}
+{{- $existing := default "" (get $annotations $key) -}}
+{{- if $existing -}}
+{{- $ref = printf "%s,%s" $existing $ref -}}
+{{- end -}}
+{{- $_ := set $annotations $key $ref -}}
+{{- end -}}
+{{- toYaml $annotations -}}
+{{- end }}
+
 {{- define "presence.postgresql.fullname" -}}
 {{- printf "%s-postgresql" (include "presence.fullname" .) }}
 {{- end }}
