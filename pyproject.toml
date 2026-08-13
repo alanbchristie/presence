@@ -24,6 +24,8 @@ test = [
     "pytest>=8.3",
     "pytest-cov>=5.0",
     "pytest-django>=4.9",
+    # Used only by test_helm_chart.py, to parse `helm template` output.
+    "pyyaml>=6.0",
 ]
 
 [tool.pytest.ini_options]

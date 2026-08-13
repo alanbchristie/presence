@@ -1,0 +1,195 @@
+# Default values for the presence chart.
+#
+# The chart deploys three things: the web role (Django behind gunicorn), the
+# runner role (the state-machine loop), and — optionally — a PostgreSQL
+# StatefulSet for them to share. Two invariants are NOT configurable, because
+# breaking them corrupts the application's behaviour (see README, "Deploying
+# to Kubernetes"):
+#
+#   * exactly one runner pod may drive a database, and
+#   * the web role runs a single replica with a single gunicorn worker
+#     (its rate-limit cache is in-process).
+#
+# Both deployments are therefore pinned to one replica and use the Recreate
+# update strategy, so an upgrade never briefly runs two of either.
+
+image:
+  # The multi-architecture image published by the release workflow. It is
+  # built for linux/amd64 and linux/arm64, so it runs on ARM k3s nodes as-is.
+  repository: alanbchristie/presence
+  # Defaults to the chart's appVersion when left empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Override the generated resource names.
+nameOverride: ""
+fullnameOverride: ""
+
+django:
+  # REQUIRED unless `existingSecret` is set. The app refuses to start with a
+  # blank key while DEBUG is off, so there is no usable default. Generate one:
+  #   python -c "from django.core.management.utils import \
+  #     get_random_secret_key; print(get_random_secret_key())"
+  secretKey: ""
+
+  # Name of a Secret you manage yourself. When set, the chart creates no
+  # Secret of its own and reads every sensitive value from this one, which
+  # must provide these keys:
+  #   django-secret-key   (required)
+  #   db-password         (required)
+  #   superuser-password  (only to create the admin superuser)
+  #   w3w-api-key         (only to enable What3Words input)
+  existingSecret: ""
+
+  # Leave off. With DEBUG on the app uses a publicly known key and relaxes
+  # every HTTPS protection — never enable it on a cluster.
+  debug: false
+
+  # Hostnames served in addition to the ingress host. localhost and 127.0.0.1
+  # are always allowed so in-cluster probes can reach the app.
+  extraAllowedHosts: []
+  # Extra CSRF trusted origins (scheme included, e.g. https://presence.lan).
+  # The ingress host is added automatically when the ingress is enabled.
+  extraCsrfTrustedOrigins: []
+
+  superuser:
+    # As with docker-compose, the `admin` superuser is created on first boot
+    # only when a password is supplied here (or, with django.existingSecret,
+    # as that Secret's `superuser-password` key) — there is no default login.
+    password: ""
+    username: admin
+    email: info@example.com
+
+# What3Words REST API key (optional). Only needed to enter a location's
+# position as a three-word address; decimal lat,lon always works without it.
+# Wired into the web pod only when non-empty.
+w3w:
+  apiKey: ""
+
+web:
+  # Pinned to 1 by the template — the rate-limit cache is in-process, so a
+  # second replica would silently halve the effective limit. Present here
+  # only to document that; changing it has no effect.
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  # The web pod owns `migrate` and `collectstatic`, so give it room to finish
+  # those before the liveness probe starts judging it.
+  startupProbe:
+    periodSeconds: 5
+    failureThreshold: 60
+  readinessProbe:
+    periodSeconds: 10
+    failureThreshold: 3
+  livenessProbe:
+    periodSeconds: 20
+    failureThreshold: 3
+
+runner:
+  # Pinned to 1 by the template: two runners driving one database fight over
+  # every presence row's state. Changing this has no effect.
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+ingress:
+  enabled: false
+  # k3s ships Traefik as the default ingress controller, which is what this
+  # deployment uses.
+  className: traefik
+  # The public hostname this deployment is published under. Django's
+  # ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS are derived from it, so change it
+  # here rather than setting those by hand.
+  host: presence.hopto.org
+  path: /
+  pathType: Prefix
+  annotations: {}
+  tls:
+    enabled: false
+    # Secret holding the certificate for `host` (e.g. issued by cert-manager,
+    # in which case add the issuer annotation to ingress.annotations).
+    secretName: ""
+
+# Response compression, the Kubernetes equivalent of the compose stack's
+# Caddy `encode zstd gzip`. Traefik does not compress by default.
+#
+# Off by default because it renders a Traefik-specific Middleware CRD, which
+# a cluster running a different ingress controller will not have. It requires
+# ingress.enabled (it works by annotating the Ingress) and rendering fails if
+# you enable one without the other.
+#
+# Note that static files are already compressed regardless: whitenoise
+# pre-compresses them during collectstatic and serves them with the matching
+# Content-Encoding. This adds compression for the dynamic HTML.
+compression:
+  enabled: false
+  # Traefik negotiates the first of these the client accepts.
+  encodings:
+  - gzip
+  - br
+  - zstd
+  # Responses smaller than this are sent uncompressed.
+  minResponseBodyBytes: 1024
+
+# Bundled single-instance PostgreSQL. Disable it to use an external server
+# and fill in `externalDatabase` instead.
+postgresql:
+  enabled: true
+  # The official image is multi-arch, so it runs on arm64 nodes.
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  database: presence
+  username: presence
+  # Change this for any deployment: it is the only credential protecting the
+  # database, even though the service is cluster-internal.
+  password: presence
+  persistence:
+    enabled: true
+    size: 2Gi
+    # Empty uses the cluster default (local-path on k3s).
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Used only when postgresql.enabled is false.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: presence
+  username: presence
+  password: ""
+
+# Applied to the web, runner and PostgreSQL pods. On a mixed-architecture
+# cluster pin the workload with, e.g.:
+#   nodeSelector:
+#     kubernetes.io/arch: arm64
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+# Left empty deliberately: the web entrypoint runs `collectstatic`, which
+# writes into /app inside the image, so the container is not read-only and
+# does not currently run as a non-root user.
+podSecurityContext: {}
+securityContext: {}

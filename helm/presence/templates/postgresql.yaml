@@ -1,0 +1,111 @@
+{{- if .Values.postgresql.enabled }}
+{{/*
+A single-instance PostgreSQL for the release, equivalent to compose's `db`
+service: one replica, one volume, no host exposure. Disable it
+(postgresql.enabled=false) and fill in `externalDatabase` to point the app
+at a server you manage.
+
+The Service is headless because nothing needs to load-balance across a
+single StatefulSet pod; the app just needs the stable in-cluster DNS name.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "presence.postgresql.fullname" . }}
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  clusterIP: None
+  ports:
+  - name: postgresql
+    port: 5432
+    targetPort: postgresql
+    protocol: TCP
+  selector:
+    {{- include "presence.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "presence.postgresql.fullname" . }}
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ include "presence.postgresql.fullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "presence.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "presence.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      {{- with (include "presence.scheduling" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+      - name: postgresql
+        image: {{ printf "%s:%s" .Values.postgresql.image.repository .Values.postgresql.image.tag | quote }}
+        imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.postgresql.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgresql.username | quote }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "presence.secretName" . }}
+              key: db-password
+        # The volume is mounted at /var/lib/postgresql/data, and initdb refuses
+        # a directory that is not empty — a mount point often has a lost+found.
+        # Keeping the cluster in a subdirectory avoids that.
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - name: postgresql
+          containerPort: 5432
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", {{ .Values.postgresql.username | quote }}, "-d", {{ .Values.postgresql.database | quote }}]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 12
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", {{ .Values.postgresql.username | quote }}, "-d", {{ .Values.postgresql.database | quote }}]
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          failureThreshold: 6
+        {{- with .Values.postgresql.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+      {{- if not .Values.postgresql.persistence.enabled }}
+      volumes:
+      - name: data
+        emptyDir: {}
+      {{- end }}
+  {{- if .Values.postgresql.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - {{ .Values.postgresql.persistence.accessMode }}
+      {{- with .Values.postgresql.persistence.storageClass }}
+      storageClassName: {{ . | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.postgresql.persistence.size | quote }}
+  {{- end }}
+{{- end }}

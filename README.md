@@ -100,6 +100,122 @@ Container-only environment baked into `docker-compose.yml`:
 - `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]`
 - `DJANGO_SUPERUSER_*` — auto-creates the `admin/admin` superuser on first boot.
 
+## Deploying to Kubernetes (k3s)
+
+`helm/presence` is a Helm chart for Kubernetes **v1.36 and later** (issue
+#62). The published image is multi-architecture — the release workflow builds
+`linux/amd64` and `linux/arm64` — so it runs unchanged on ARM k3s nodes.
+
+```
+helm upgrade --install presence ./helm/presence \
+  --namespace presence --create-namespace \
+  --set django.secretKey="$(python -c 'from django.core.management.utils \
+    import get_random_secret_key; print(get_random_secret_key())')" \
+  --set postgresql.password="$(openssl rand -hex 16)" \
+  --set django.superuser.password='choose-something-strong' \
+  --set ingress.enabled=true
+```
+
+The ingress defaults to `presence.hopto.org` on the `traefik` class (k3s's
+built-in controller), so only `ingress.enabled` needs setting for this
+deployment; pass `--set ingress.host=...` for any other.
+
+That creates the web Deployment, the runner Deployment, a single-instance
+PostgreSQL StatefulSet with a PVC, a Secret, a Service and (optionally) an
+Ingress. `helm/presence/values.yaml` documents every value; the ones you are
+most likely to change:
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `django.secretKey` | — | **Required.** The app refuses to boot without it. |
+| `django.existingSecret` | `""` | Use a Secret you manage instead (keys: `django-secret-key`, `db-password`, `superuser-password`, `w3w-api-key`). |
+| `django.superuser.password` | `""` | Creates the `admin` superuser on first boot. Unset means no admin login. |
+| `image.tag` | chart `appVersion` (`3.0.1`) | Which published tag to run. |
+| `ingress.enabled` / `ingress.host` | `false` / `presence.hopto.org` | Publish via the cluster ingress. The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
+| `ingress.className` | `traefik` | k3s's built-in ingress controller. |
+| `ingress.tls.enabled` / `ingress.tls.secretName` | `false` / `""` | Serve HTTPS from an existing certificate Secret (e.g. issued by cert-manager). |
+| `compression.enabled` | `false` | Compress responses via a Traefik `compress` middleware. Requires Traefik's CRDs. |
+| `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
+| `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
+| `nodeSelector` | `{}` | Pin the pods, e.g. `kubernetes.io/arch: arm64` on a mixed cluster. |
+
+**Serve it over TLS.** With `DJANGO_DEBUG` off — the default, and the only
+sane setting for a cluster — the app sets secure cookies and redirects HTTP
+to HTTPS, so a plain-HTTP ingress will bounce browsers to a port nothing is
+listening on. Traefik terminating TLS is enough: Django trusts its
+`X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), exactly as it trusts Caddy's
+in the compose stack.
+
+### TLS and compression (replacing the Caddy sidecar)
+
+In Kubernetes, Traefik and cert-manager between them do everything the
+compose stack's Caddy sidecar does — the chart deploys no Caddy, and the
+`tls` compose profile is only for the non-Kubernetes deployment.
+
+| Caddy's job (`Caddyfile`) | Kubernetes equivalent |
+| --- | --- |
+| Let's Encrypt issuance and renewal | cert-manager |
+| TLS termination, `reverse_proxy web:8000` | Traefik, via this chart's Ingress |
+| `encode zstd gzip` | `compression.enabled=true` (see below) |
+
+`SECURE_PROXY_SSL_HEADER` needs no change: Traefik sets `X-Forwarded-Proto`
+exactly as Caddy does, so `request.is_secure()` is true and
+`SECURE_SSL_REDIRECT` does not loop.
+
+With cert-manager, name your issuer and the Secret it should create:
+
+```yaml
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: presence-tls    # cert-manager creates this
+compression:
+  enabled: true
+```
+
+`compression.enabled` renders a Traefik `Middleware`
+(`traefik.io/v1alpha1`, the v3 API group) and references it from the Ingress
+with a `traefik.ingress.kubernetes.io/router.middlewares` annotation. It is
+opt-in because that CRD only exists on Traefik clusters, and it requires
+`ingress.enabled` — the chart refuses to render otherwise, rather than
+producing a middleware nothing uses. Any middleware reference you set
+yourself is appended to, not overwritten.
+
+Static files are compressed either way: whitenoise pre-compresses them
+during `collectstatic` and serves them with the matching `Content-Encoding`.
+This setting adds compression for the dynamic HTML.
+
+### What the chart will not let you scale
+
+Two replica counts are pinned to `1` in the templates rather than exposed as
+working values, because raising either one breaks the application:
+
+- **The runner.** Exactly one runner process may drive a given database;
+  two would fight over every presence row's `current_state` and
+  `next_transition_at`.
+- **The web role.** The failed-login/API rate limiter counts attempts in an
+  in-process `LocMemCache`, so a second replica would hand a caller a second
+  independent budget. (This is the same constraint that keeps gunicorn at
+  `--workers 1`.)
+
+Both Deployments therefore also use the `Recreate` update strategy: the
+default `RollingUpdate` briefly runs an extra pod, which is precisely what
+must not happen. A shared cache backend is the prerequisite for scaling the
+web role — until then, don't.
+
+Startup ordering mirrors compose's `depends_on` conditions with init
+containers, because a pod whose dependency is not ready simply dies and gets
+restarted:
+
+- the **web** pod waits for the database to accept connections, then its
+  entrypoint applies the migrations, as it does under compose;
+- the **runner** pod waits for those migrations using the read-only
+  `manage.py migrate --check`, so `migrate` keeps the single owner it has
+  under compose and no two processes ever apply it concurrently.
+
 ## Migrating from SQLite
 
 Before issue #47 the compose stack stored everything in a SQLite file on the
@@ -256,6 +372,7 @@ uv.lock
 Dockerfile
 docker-compose.yml
 entrypoint.sh           # per-role startup: web pre-steps + server / run_runner
+helm/presence/          # Helm chart (Kubernetes v1.36+, ARM-friendly k3s)
 scripts/                # sqlite_to_postgres.sh one-time data migration
 .env.example
 presence_site/          # Django project (settings, urls)
@@ -272,7 +389,7 @@ presence/               # The app
 
 ## Caveats
 
-- Exactly **one** runner process may drive the state machine per database. Docker Compose satisfies this with the dedicated `runner` container (the web container's in-process thread is gated off with `PRESENCE_RUN_RUNNER=false`); plain `runserver` satisfies it with one in-process thread. Never run both, or scale `runner` beyond one replica — the copies race on the same rows.
+- Exactly **one** runner process may drive the state machine per database. Docker Compose satisfies this with the dedicated `runner` container (the web container's in-process thread is gated off with `PRESENCE_RUN_RUNNER=false`); the Helm chart with a one-replica `Recreate` Deployment; plain `runserver` with one in-process thread. Never run both, or scale `runner` beyond one replica — the copies race on the same rows.
 - The web container stays **single-worker** because the rate limiter's in-process cache is only coherent within one process; a shared cache backend is the remaining prerequisite for multi-worker web.
 - Outside Docker (no `DJANGO_DB_HOST`) the database is a local SQLite file — fine for development; deployments get PostgreSQL via compose.
 - Solar windows depend on astral's built-in city database (~390 cities). Names are validated against that database when a row is saved.

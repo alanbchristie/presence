@@ -1,0 +1,85 @@
+{{/*
+The runner role: `manage.py run_runner`, the state-machine loop.
+
+**Exactly one runner process may drive a given database** — two would fight
+over every presence row's current_state/next_transition_at. That is why
+replicas is pinned to 1 (not a value the operator can raise) and the update
+strategy is Recreate: RollingUpdate would start the replacement pod while
+the old one still holds the loop.
+
+It also never migrates. entrypoint.sh gives `migrate` a single owner (the
+web role); here the init container only *waits* for the schema, using the
+read-only `migrate --check`, which mirrors compose's `depends_on: web
+condition: service_healthy` without risking a concurrent migrate.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "presence.fullname" . }}-runner
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "presence.selectorLabels" (dict "ctx" . "component" "runner") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "presence.labels" . | nindent 8 }}
+        app.kubernetes.io/component: runner
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (include "presence.scheduling" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      initContainers:
+      - name: wait-for-migrations
+        image: {{ include "presence.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          until python manage.py migrate --check; do
+            echo "waiting for the web role to apply migrations..."
+            sleep 5
+          done
+        env:
+        {{- include "presence.commonEnv" . | nindent 8 }}
+        {{- with .Values.runner.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      containers:
+      - name: runner
+        image: {{ include "presence.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- with .Values.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+        {{- include "presence.commonEnv" . | nindent 8 }}
+        # entrypoint.sh switches on this: it skips the web-only pre-steps and
+        # execs `manage.py run_runner`, which handles SIGTERM so the pod stops
+        # cleanly.
+        - name: PRESENCE_SERVER
+          value: "runner"
+        {{- with .Values.runner.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}

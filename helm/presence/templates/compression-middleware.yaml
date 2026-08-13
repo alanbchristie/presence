@@ -1,0 +1,26 @@
+{{- if .Values.compression.enabled }}
+{{- if not .Values.ingress.enabled }}
+{{- fail "compression.enabled requires ingress.enabled: the compress middleware is attached by annotating the Ingress, so it does nothing without one" }}
+{{- end }}
+{{/*
+Traefik's compress middleware — what replaces the Caddy sidecar's
+`encode zstd gzip` in the compose stack, since Traefik sends responses
+uncompressed unless told otherwise.
+
+This is a Traefik CRD (`traefik.io/v1alpha1`, the v3 group — v2's
+traefik.containo.us is obsolete), which is why the whole feature is opt-in:
+a cluster running a different ingress controller has no such kind. The
+Ingress references it by annotation; see presence.ingressAnnotations.
+*/}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "presence.compressionName" . }}
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+spec:
+  compress:
+    encodings:
+      {{- toYaml .Values.compression.encodings | nindent 6 }}
+    minResponseBodyBytes: {{ .Values.compression.minResponseBodyBytes }}
+{{- end }}
