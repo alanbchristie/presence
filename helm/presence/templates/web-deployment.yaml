@@ -44,6 +44,30 @@ spec:
       {{- with (include "presence.scheduling" . | trim) }}
       {{- . | nindent 6 }}
       {{- end }}
+      initContainers:
+      # The entrypoint runs `migrate` the instant the container starts, and a
+      # database that is not yet reachable kills it — so a fresh install would
+      # crash-loop until PostgreSQL came up. Waiting here is the chart's
+      # equivalent of compose's `depends_on: db condition: service_healthy`.
+      # It only waits: migrations remain the web container's own job.
+      - name: wait-for-database
+        image: {{ include "presence.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          until python -c "import os, socket; socket.create_connection(
+              (os.environ['DJANGO_DB_HOST'],
+               int(os.environ['DJANGO_DB_PORT'])), 5)"; do
+            echo "waiting for the database to accept connections..."
+            sleep 2
+          done
+        env:
+        {{- include "presence.commonEnv" . | nindent 8 }}
+        {{- with .Values.web.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       containers:
       - name: web
         image: {{ include "presence.image" . | quote }}

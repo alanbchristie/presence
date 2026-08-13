@@ -159,10 +159,15 @@ default `RollingUpdate` briefly runs an extra pod, which is precisely what
 must not happen. A shared cache backend is the prerequisite for scaling the
 web role — until then, don't.
 
-Migrations keep the single owner they have under compose: the web pod's
-entrypoint runs them, and the runner pod's init container *waits* for them
-with the read-only `manage.py migrate --check` rather than applying them
-itself.
+Startup ordering mirrors compose's `depends_on` conditions with init
+containers, because a pod whose dependency is not ready simply dies and gets
+restarted:
+
+- the **web** pod waits for the database to accept connections, then its
+  entrypoint applies the migrations, as it does under compose;
+- the **runner** pod waits for those migrations using the read-only
+  `manage.py migrate --check`, so `migrate` keeps the single owner it has
+  under compose and no two processes ever apply it concurrently.
 
 ## Migrating from SQLite
 

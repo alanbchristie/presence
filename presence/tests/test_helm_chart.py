@@ -121,6 +121,30 @@ def test_chart_metadata_is_present():
     assert not meta["version"].startswith("v")
 
 
+def test_default_image_tag_is_a_published_release():
+    """appVersion is the default image tag, so it must name a real release.
+
+    The tag comes from the newest git release tag (what the release workflow
+    publishes to Docker Hub) — deliberately not pyproject.toml's version,
+    which nothing reads and which has drifted behind the releases.
+    """
+    tags = subprocess.run(
+        ["git", "tag", "--sort=-v:refname"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    newest = tags.stdout.split("\n")[0].strip() if tags.returncode == 0 else ""
+    if not newest:
+        pytest.skip("no git tags in this checkout (e.g. a shallow clone)")
+    meta = yaml.safe_load((CHART / "Chart.yaml").read_text())
+    assert meta["appVersion"] == newest, (
+        f"Chart appVersion {meta['appVersion']!r} is not the newest release "
+        f"tag {newest!r}, so the chart's default image tag may not exist"
+    )
+
+
 def test_chart_lints_cleanly():
     result = subprocess.run(
         ["helm", "lint", str(CHART), "--kube-version", KUBE_VERSION,
@@ -222,6 +246,25 @@ def test_web_is_a_single_replica_running_gunicorn():
     assert env["PRESENCE_SERVER"] == "gunicorn"
     # The web pod must never also spawn the in-process runner thread.
     assert env["PRESENCE_RUN_RUNNER"] == "false"
+
+
+def test_web_waits_for_the_database_before_starting():
+    """Without this the web pod crash-loops until PostgreSQL accepts calls.
+
+    Observed on a real cluster: the entrypoint's `migrate` runs the moment
+    the container starts, and a database that is not yet resolvable kills
+    it — two restarts before the pod settled. This is the chart's equivalent
+    of compose's `depends_on: db condition: service_healthy`.
+    """
+    docs = render()
+    web = one(docs, "Deployment", "-web")
+    init = web["spec"]["template"]["spec"].get("initContainers") or []
+    assert init, "the web pod needs an init container that waits for the DB"
+    joined = json.dumps(init)
+    # It waits for a connection; applying migrations stays the job of the
+    # web container's own entrypoint, which owns them.
+    assert "create_connection" in joined
+    assert "migrate" not in joined
 
 
 def test_web_replicas_cannot_be_raised_from_values():
