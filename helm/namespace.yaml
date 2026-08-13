@@ -1,0 +1,18 @@
+# The namespace the presence release is installed into:
+#
+#   kubectl apply -f helm/namespace.yaml
+#   helm upgrade --install presence ./helm/presence --namespace presence ...
+#
+# This is an alternative to `helm --create-namespace`, for clusters where the
+# namespace is created (and labelled, quota'd, or policy-bound) separately
+# from the release. Either way the namespace is deliberately NOT part of the
+# chart, so `helm uninstall` removes the workload and leaves the namespace —
+# and the PersistentVolumeClaim holding the database — standing.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: presence
+  labels:
+    # Matches the chart's own labelling, so `kubectl get ns -l
+    # app.kubernetes.io/name=presence` finds it.
+    app.kubernetes.io/name: presence
