@@ -26,9 +26,7 @@ Name helpers (the conventional chart boilerplate).
 helm.sh/chart: {{ include "presence.chart" . }}
 app.kubernetes.io/name: {{ include "presence.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
+app.kubernetes.io/version: {{ include "presence.imageTag" . | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
@@ -45,11 +43,20 @@ app.kubernetes.io/component: {{ .component }}
 {{- end }}
 
 {{/*
+The application image tag. Required: the chart has no appVersion to fall
+back on, and guessing a tag would silently deploy a version the operator
+did not choose. `required` aborts the render instead, naming the value.
+*/}}
+{{- define "presence.imageTag" -}}
+{{- required "image.tag is required: set it to the released version to deploy, e.g. --set image.tag=3.0.2" .Values.image.tag }}
+{{- end }}
+
+{{/*
 The application image, shared by the web role, the runner role and the
 runner's init container so a release can never run mixed versions.
 */}}
 {{- define "presence.image" -}}
-{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
+{{- printf "%s:%s" .Values.image.repository (include "presence.imageTag" .) }}
 {{- end }}
 
 {{/*

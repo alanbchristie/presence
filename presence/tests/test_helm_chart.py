@@ -39,8 +39,15 @@ RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 KUBE_VERSION = "1.36.0"
 
 # A secret key is mandatory (the app refuses to boot without one when DEBUG
-# is off), so every render has to supply one.
-BASE_ARGS = ["--set", "django.secretKey=test-only-not-a-real-secret"]
+# is off) and so is an image tag (the chart defaults it to nothing), so every
+# render has to supply both. `test_image_tag_is_required` renders without the
+# tag deliberately, and so does not go through `render`.
+BASE_ARGS = [
+    "--set",
+    "django.secretKey=test-only-not-a-real-secret",
+    "--set",
+    "image.tag=0.0.0-test",
+]
 
 pytestmark = pytest.mark.skipif(
     shutil.which("helm") is None, reason="helm is not installed"
@@ -121,28 +128,61 @@ def test_chart_metadata_is_present():
     assert not meta["version"].startswith("v")
 
 
-def test_default_image_tag_is_a_published_release():
-    """appVersion is the default image tag, so it must name a real release.
+def test_chart_declares_no_app_version():
+    """The chart names no application version of its own.
 
-    The tag comes from the newest git release tag (what the release workflow
-    publishes to Docker Hub) — deliberately not pyproject.toml's version,
-    which nothing reads and which has drifted behind the releases.
+    An appVersion would have to track the newest published release to be a
+    safe default image tag, which forced a chart revision for every app
+    patch — including ones that change nothing in the chart. The operator
+    now states the tag instead (see `test_image_tag_is_required`), so the
+    chart's own version is free to move only when the chart does.
     """
-    tags = subprocess.run(
-        ["git", "tag", "--sort=-v:refname"],
-        cwd=REPO_ROOT,
+    meta = yaml.safe_load((CHART / "Chart.yaml").read_text())
+    assert "appVersion" not in meta, (
+        "Chart.yaml declares an appVersion, which re-couples the chart's "
+        "revision to the application's release cadence"
+    )
+
+
+def test_image_tag_is_required():
+    """Rendering without `image.tag` fails, and says so in the error.
+
+    Defaulting it would silently deploy some other version than the operator
+    intended; failing the render is the only outcome that cannot go unnoticed.
+    """
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "presence",
+            str(CHART),
+            "--kube-version",
+            KUBE_VERSION,
+            "--set",
+            "django.secretKey=test-only-not-a-real-secret",
+        ],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    newest = tags.stdout.split("\n")[0].strip() if tags.returncode == 0 else ""
-    if not newest:
-        pytest.skip("no git tags in this checkout (e.g. a shallow clone)")
-    meta = yaml.safe_load((CHART / "Chart.yaml").read_text())
-    assert meta["appVersion"] == newest, (
-        f"Chart appVersion {meta['appVersion']!r} is not the newest release "
-        f"tag {newest!r}, so the chart's default image tag may not exist"
-    )
+    assert result.returncode != 0, "render succeeded without an image tag"
+    assert "image.tag" in result.stderr
+
+
+def test_version_label_tracks_the_image_tag():
+    """`app.kubernetes.io/version` reports the tag actually being deployed.
+
+    It used to report the chart's appVersion, which could differ from the
+    image an operator pinned via `image.tag`.
+    """
+    docs = render("--set", "image.tag=9.9.9")
+    for kind in ("Deployment", "Service"):
+        for doc in by_kind(docs, kind):
+            labels = doc["metadata"]["labels"]
+            assert labels["app.kubernetes.io/version"] == "9.9.9", (
+                f"{kind} {doc['metadata']['name']} reports version "
+                f"{labels.get('app.kubernetes.io/version')!r}"
+            )
 
 
 EXAMPLE_VALUES = REPO_ROOT / "helm" / "values.example.yaml"
@@ -219,9 +259,11 @@ def test_chart_lints_cleanly():
 def test_secret_key_is_required():
     """Rendering without a secret key (or an existing Secret) must fail."""
     result = subprocess.run(
-        # Note: no BASE_ARGS, so no secret key is supplied.
+        # An image tag, but no secret key: the tag is required too, and
+        # supplying it keeps this test failing for the reason it names.
         ["helm", "template", "presence", str(CHART),
-         "--kube-version", KUBE_VERSION],
+         "--kube-version", KUBE_VERSION,
+         "--set", "image.tag=0.0.0-test"],
         capture_output=True,
         text=True,
         timeout=120,

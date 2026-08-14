@@ -12,6 +12,13 @@
 # same on every upgrade (a forgotten `--set` silently reverts that value to
 # its default), and it keeps secrets out of your shell history.
 
+image:
+  # REQUIRED — which published release to run. The chart has no default, so
+  # an upgrade to a newer application version is this one line, with no chart
+  # change at all. Pick one from:
+  #   https://github.com/alanbchristie/presence/releases
+  tag: "3.0.2"
+
 django:
   # REQUIRED — the app refuses to start without it. Generate one with:
   #   python -c "from django.core.management.utils import \

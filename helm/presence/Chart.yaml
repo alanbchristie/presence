@@ -3,14 +3,16 @@ name: presence
 description: Django app that simulates on/off presence within a daily window.
 type: application
 
-# Chart version (semver, no "v" prefix). Bump this for chart changes.
+# Chart version (semver, no "v" prefix). Bump this for chart changes — and
+# only for chart changes.
 #
-# appVersion is the default image tag, so it must name a tag the release
-# workflow has actually published to Docker Hub — that is the newest git
-# release tag, NOT the (unused, and currently stale) version in
-# pyproject.toml. Bump it when a new release is published.
-version: 0.1.0
-appVersion: "3.0.1"
+# There is deliberately no appVersion. It would be the chart's default image
+# tag, so it would have to name a tag the release workflow had actually
+# published, which dragged a chart revision behind every application release
+# — including fixes that touch nothing here. The operator names the image
+# instead: `image.tag` is required, and the chart refuses to render without
+# it.
+version: 0.2.0
 
 # Issue #62 targets Kubernetes v1.36 and beyond (k3s on ARM).
 kubeVersion: ">=1.36.0-0"

@@ -17,7 +17,10 @@ image:
   # The multi-architecture image published by the release workflow. It is
   # built for linux/amd64 and linux/arm64, so it runs on ARM k3s nodes as-is.
   repository: alanbchristie/presence
-  # Defaults to the chart's appVersion when left empty.
+  # REQUIRED — which published release to run, e.g. "3.0.2". There is no
+  # default: the chart would have to guess a version, and guessing wrong
+  # deploys an application nobody chose. Rendering fails while this is blank.
+  # Published releases: https://github.com/alanbchristie/presence/releases
   tag: ""
   pullPolicy: IfNotPresent
 

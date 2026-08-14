@@ -130,6 +130,8 @@ A minimal file for this deployment, which is what `helm/values.example.yaml`
 contains:
 
 ```yaml
+image:
+  tag: "3.0.2"                   # required; which published release to run
 django:
   secretKey: ...                 # required; the app will not start without it
   superuser:
@@ -147,8 +149,13 @@ compression:
 ```
 
 Everything else comes from the chart's defaults. Overriding one value at
-install time is still fine — `--set image.tag=3.0.2` on top of `-f` works,
-and `-f` can be repeated to layer a per-environment file over a common one.
+install time is still fine — `--set ingress.host=elsewhere.example` on top of
+`-f` works, and `-f` can be repeated to layer a per-environment file over a
+common one.
+
+To move to a newer application release, change `image.tag` and upgrade. The
+chart is versioned separately and does not need to change for that — see
+"Upgrading" below.
 
 That creates the web Deployment, the runner Deployment, a single-instance
 PostgreSQL StatefulSet with a PVC, a Secret, a Service and (optionally) an
@@ -160,7 +167,7 @@ most likely to change:
 | `django.secretKey` | — | **Required.** The app refuses to boot without it. |
 | `django.existingSecret` | `""` | Use a Secret you manage instead (keys: `django-secret-key`, `db-password`, `superuser-password`, `w3w-api-key`). |
 | `django.superuser.password` | `""` | Creates the `admin` superuser on first boot. Unset means no admin login. |
-| `image.tag` | chart `appVersion` (`3.0.1`) | Which published tag to run. |
+| `image.tag` | — | **Required.** Which published release to run, e.g. `3.0.2`. The chart deliberately has no default, so upgrading the app is a one-line change here and never needs a new chart. |
 | `ingress.enabled` / `ingress.host` | `false` / `presence.hopto.org` | Publish via the cluster ingress. The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
 | `ingress.className` | `traefik` | k3s's built-in ingress controller. |
 | `ingress.publicPort` | `0` | The port of the public URL, when it is not the scheme's default. Added to `DJANGO_CSRF_TRUSTED_ORIGINS`, which must match the browser's `Origin` header exactly. |
@@ -177,6 +184,31 @@ to HTTPS, so a plain-HTTP ingress will bounce browsers to a port nothing is
 listening on. Traefik terminating TLS is enough: Django trusts its
 `X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), exactly as it trusts Caddy's
 in the compose stack.
+
+### Upgrading
+
+The chart and the application are versioned independently, and `image.tag`
+is what joins them. There is no `appVersion` and no default tag — the chart
+never implies a version, so an application release never obliges a chart
+release.
+
+To move to a newer application version, edit `image.tag` in your values file
+and upgrade:
+
+```
+helm upgrade --install presence ./helm/presence \
+  --namespace presence -f helm/values.yaml
+```
+
+Both Deployments use the `Recreate` strategy, so the old pod stops before the
+new one starts — no rolling window in which two runners drive one database, or
+two web workers hold separate rate-limit caches. Expect a few seconds of
+downtime on every upgrade; that is the deliberate trade. Migrations run from
+the web pod's entrypoint as usual, and the runner's init container waits for
+them.
+
+Leaving `image.tag` unset fails the render with a message naming it, rather
+than quietly deploying something you did not choose.
 
 ### TLS and compression (replacing the Caddy sidecar)
 
