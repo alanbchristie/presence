@@ -73,11 +73,14 @@ Annotations for the Ingress: the operator's own, plus the cert-manager
 issuer reference and the compress middleware reference when those apply.
 Anything the operator set explicitly wins in both cases.
 
-The middleware is named `<namespace>/<name>@kubernetescrd` — the explicit
-cross-namespace form, so resolution never depends on where Traefik thinks
-the route lives. The annotation's value is a comma-separated list, so an
-operator-supplied reference (an auth middleware, say) is appended to rather
-than overwritten.
+The middleware is named `<namespace>-<name>@kubernetescrd`, the flat
+provider-qualified form this annotation takes. The `<namespace>/<name>` form
+belongs to an IngressRoute's structured `middlewares` list and resolves to
+nothing here — whereupon Traefik drops the router from every entrypoint and
+the Ingress serves nothing at all, rather than merely serving uncompressed.
+
+The annotation's value is a comma-separated list, so an operator-supplied
+reference (an auth middleware, say) is appended to rather than overwritten.
 */}}
 {{- define "presence.ingressAnnotations" -}}
 {{- $annotations := deepCopy (default dict .Values.ingress.annotations) -}}
@@ -89,7 +92,7 @@ than overwritten.
 {{- end -}}
 {{- if .Values.compression.enabled -}}
 {{- $key := "traefik.ingress.kubernetes.io/router.middlewares" -}}
-{{- $ref := printf "%s/%s@kubernetescrd" .Release.Namespace (include "presence.compressionName" .) -}}
+{{- $ref := printf "%s-%s@kubernetescrd" .Release.Namespace (include "presence.compressionName" .) -}}
 {{- $existing := default "" (get $annotations $key) -}}
 {{- if $existing -}}
 {{- $ref = printf "%s,%s" $existing $ref -}}

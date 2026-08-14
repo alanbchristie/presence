@@ -549,6 +549,26 @@ def test_compression_renders_a_traefik_middleware_and_wires_it_up():
     assert middleware["metadata"]["name"] in ref
 
 
+def test_compression_middleware_reference_uses_traefiks_flat_name():
+    """The annotation takes `<namespace>-<name>@kubernetescrd`.
+
+    The `<namespace>/<name>` form is only valid inside an IngressRoute's
+    structured `middlewares` list. Given to the annotation it resolves to
+    nothing, and Traefik's response is drastic: it logs `middleware ... does
+    not exist` and drops the router from every entrypoint, so the Ingress
+    stops serving altogether rather than merely serving uncompressed.
+    """
+    docs = render(
+        "--namespace", "presence",
+        "--set", "ingress.enabled=true",
+        "--set", "compression.enabled=true",
+    )
+    annotations = one(docs, "Ingress")["metadata"]["annotations"]
+    assert annotations[MIDDLEWARE_ANNOTATION] == (
+        "presence-presence-compress@kubernetescrd"
+    )
+
+
 def test_compression_options_are_configurable():
     docs = render(
         "--set", "ingress.enabled=true",
