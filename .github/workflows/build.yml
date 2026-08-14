@@ -105,8 +105,11 @@ jobs:
       - name: Lint the chart
         # --kube-version because the chart declares a floor of 1.36 and helm's
         # built-in default is older, which lint would otherwise reject.
+        # image.tag has no default and is required, so every render supplies
+        # one; the value is arbitrary, nothing here pulls the image.
         run: helm lint helm/presence --kube-version 1.36.0
              --set django.secretKey=ci-lint-not-a-real-secret
+             --set image.tag=0.0.0-ci
 
       - name: Install kubeconform
         # Validates rendered manifests against the real Kubernetes schemas
@@ -138,10 +141,14 @@ jobs:
           # it is validated properly rather than skipped with
           # -ignore-missing-schemas (which would also hide a typo'd core kind).
           crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          # image.tag is required and has no default, so it belongs on every
+          # case rather than in each entry above. The value is arbitrary —
+          # nothing here pulls the image.
+          tag="--set image.tag=0.0.0-ci"
           for case in "${cases[@]}"; do
             echo "::group::helm template $case"
             # shellcheck disable=SC2086
-            helm template presence helm/presence --kube-version 1.36.0 $case \
+            helm template presence helm/presence --kube-version 1.36.0 $tag $case \
               | kubeconform -strict -summary -kubernetes-version 1.36.0 \
                   -schema-location default -schema-location "$crds" -
             echo "::endgroup::"

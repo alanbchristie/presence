@@ -95,6 +95,14 @@ validates every value permutation with kubeconform (the `helm` job of
 `.github/workflows/build.yml`). Chart-facing config follows the same pattern
 as the rest: env var → `settings.py` → `values.yaml` → the pod's env.
 
+The chart carries **no `appVersion` and no default `image.tag`** — the
+operator names the image, and rendering fails (via `required`) if they do
+not. An appVersion would be the default tag, so it would have to track the
+newest published release, which coupled the chart's revision to the app's
+release cadence: every application fix dragged a chart bump behind it. Do not
+reintroduce one; every `helm template`/`lint` invocation, in tests and CI
+alike, must pass `--set image.tag=…`.
+
 State-machine rules live in `runner._evaluate()`. Two non-obvious behaviors that
 must be preserved when editing it:
 - The first transition after a window opens is always a randomized **off**
