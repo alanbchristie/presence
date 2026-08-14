@@ -43,6 +43,18 @@ spec:
       labels:
         {{- include "presence.labels" . | nindent 8 }}
         app.kubernetes.io/component: postgresql
+      {{/*
+      Velero's File System Backup is opt-in per pod: it copies only the
+      volumes this annotation names, matching them by the name the *pod*
+      gives them — which for a StatefulSet is the volumeClaimTemplate's
+      name, `data` below. Without persistence that volume is an emptyDir
+      holding nothing worth restoring, so the annotation is left off
+      (issue #71).
+      */}}
+      {{- if and .Values.velero.fileSystemBackup .Values.postgresql.persistence.enabled }}
+      annotations:
+        backup.velero.io/backup-volumes: data
+      {{- end }}
     spec:
       {{- with (include "presence.scheduling" . | trim) }}
       {{- . | nindent 6 }}

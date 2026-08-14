@@ -135,6 +135,7 @@ jobs:
             "--set django.existingSecret=presence-secret"
             "$key --set nodeSelector.kubernetes\\.io/arch=arm64"
             "$key --set ingress.enabled=true --set compression.enabled=true"
+            "$key --set velero.fileSystemBackup=true"
           )
           # The compression case renders a Traefik CRD, which the built-in
           # schemas do not cover. The CRDs-catalog location supplies it, so

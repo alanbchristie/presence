@@ -146,6 +146,8 @@ ingress:
     secretName: presence-tls     # cert-manager creates this, via `acme`
 compression:
   enabled: true
+velero:
+  fileSystemBackup: true         # this cluster runs Velero; back the database up
 ```
 
 Everything else comes from the chart's defaults. Overriding one value at
@@ -176,6 +178,7 @@ most likely to change:
 | `compression.enabled` | `false` | Compress responses via a Traefik `compress` middleware. Requires Traefik's CRDs. |
 | `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
 | `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
+| `velero.fileSystemBackup` | `false` | Ask Velero to copy the database volume's contents into its backups. Needs Velero and its node-agent on the cluster. |
 | `nodeSelector` | `{}` | Pin the pods, e.g. `kubernetes.io/arch: arm64` on a mixed cluster. |
 
 **Serve it over TLS.** With `DJANGO_DEBUG` off — the default, and the only
@@ -283,6 +286,65 @@ yourself is appended to, not overwritten.
 Static files are compressed either way: whitenoise pre-compresses them
 during `collectstatic` and serves them with the matching `Content-Encoding`.
 This setting adds compression for the dynamic HTML.
+
+### Backups (Velero)
+
+The database volume is the only thing in the release worth keeping. The web
+and runner pods declare no volumes at all, and the only thing they write
+outside the database is `collectstatic` output, which lands in the
+container's own filesystem and is rebuilt on every boot.
+
+[Velero](https://velero.io) — already installed on this cluster (issue #71)
+— is what backs that volume up, but it will not copy a volume's *contents*
+unless the pod asks it to. Ask, with:
+
+```yaml
+velero:
+  fileSystemBackup: true
+```
+
+which annotates the PostgreSQL pod:
+
+```yaml
+annotations:
+  backup.velero.io/backup-volumes: data
+```
+
+`data` is the `volumeClaimTemplate`'s name, which is also the name the pod
+mounts it under — the name Velero matches on. The chart installs no Velero
+of its own, schedules nothing, and leaves the annotation off when
+`postgresql.persistence.enabled` is false (an emptyDir holds nothing worth
+restoring).
+
+Three things worth knowing before turning it on:
+
+- **Without the annotation a backup is close to worthless here.** Velero's
+  File System Backup is opt-in per pod; a backup taken without it stores the
+  PVC and PV *objects* and none of the bytes behind them. Restoring that
+  rebinds to whatever the PV still points at — fine after an accidental
+  `kubectl delete`, no help at all when the disk or the node is what you
+  lost.
+- **It copies files rather than snapshotting.** The cluster's default
+  storage class is `local-path`, which has no CSI snapshotter, so there is
+  nothing to ask for a snapshot from. Velero's **node-agent** does the
+  reading, and it must be running: annotate a pod on a cluster without it
+  and the backup finishes `PartiallyFailed` instead of succeeding. That is
+  why the value defaults to off.
+- **The copy is crash-consistent, not quiesced.** PostgreSQL replays WAL the
+  first time it starts on a restored volume, exactly as it would after
+  losing power. That is a sound recovery, but it is not the same as a
+  logical `pg_dump` of a quiet database — take one of those too before
+  anything irreversible.
+
+Check that the data really is being copied, rather than trusting a green
+backup:
+
+```
+velero backup describe <backup-name> --details
+kubectl -n velero get podvolumebackups
+```
+
+Each annotated volume should appear with `Completed` and a non-zero size.
 
 ### What the chart will not let you scale
 

@@ -58,6 +58,13 @@ ingress:
 compression:
   enabled: true
 
+# Velero is installed on this cluster, so ask it to copy the database volume
+# into its backups — without this a backup captures the PVC object and none
+# of the data in it. Drop it on a cluster with no Velero node-agent, where
+# the annotation fails the backup rather than doing nothing.
+velero:
+  fileSystemBackup: true
+
 # --- Alternative: keep secrets out of this file entirely -----------------
 #
 # Create the Secret yourself (or with a sealed-secrets/external-secrets
