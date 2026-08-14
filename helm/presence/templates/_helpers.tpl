@@ -69,20 +69,30 @@ the operator's own (django.existingSecret).
 {{- end }}
 
 {{/*
-Annotations for the Ingress: the operator's own, plus the compress
-middleware reference when that is enabled.
+Annotations for the Ingress: the operator's own, plus the cert-manager
+issuer reference and the compress middleware reference when those apply.
+Anything the operator set explicitly wins in both cases.
 
-The middleware is named `<namespace>/<name>@kubernetescrd` — the explicit
-cross-namespace form, so resolution never depends on where Traefik thinks
-the route lives. The annotation's value is a comma-separated list, so an
-operator-supplied reference (an auth middleware, say) is appended to rather
-than overwritten.
+The middleware is named `<namespace>-<name>@kubernetescrd`, the flat
+provider-qualified form this annotation takes. The `<namespace>/<name>` form
+belongs to an IngressRoute's structured `middlewares` list and resolves to
+nothing here — whereupon Traefik drops the router from every entrypoint and
+the Ingress serves nothing at all, rather than merely serving uncompressed.
+
+The annotation's value is a comma-separated list, so an operator-supplied
+reference (an auth middleware, say) is appended to rather than overwritten.
 */}}
 {{- define "presence.ingressAnnotations" -}}
 {{- $annotations := deepCopy (default dict .Values.ingress.annotations) -}}
+{{- $issuerKey := "cert-manager.io/cluster-issuer" -}}
+{{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer -}}
+{{- if not (hasKey $annotations $issuerKey) -}}
+{{- $_ := set $annotations $issuerKey .Values.ingress.tls.clusterIssuer -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.compression.enabled -}}
 {{- $key := "traefik.ingress.kubernetes.io/router.middlewares" -}}
-{{- $ref := printf "%s/%s@kubernetescrd" .Release.Namespace (include "presence.compressionName" .) -}}
+{{- $ref := printf "%s-%s@kubernetescrd" .Release.Namespace (include "presence.compressionName" .) -}}
 {{- $existing := default "" (get $annotations $key) -}}
 {{- if $existing -}}
 {{- $ref = printf "%s,%s" $existing $ref -}}
@@ -148,16 +158,35 @@ anything the operator adds.
 {{- end }}
 
 {{/*
+The `:port` suffix a CSRF trusted origin needs, empty when the site is
+published on the default port for the scheme it serves (443 with TLS, 80
+without).
+
+Django compares its trusted origins against the browser's Origin header
+verbatim, and a browser writes the port there only when it is not that
+default — so `:8443` has to appear and `:443` must not.
+*/}}
+{{- define "presence.publicPortSuffix" -}}
+{{- $port := int .Values.ingress.publicPort -}}
+{{- $default := ternary 443 80 .Values.ingress.tls.enabled -}}
+{{- if and $port (ne $port $default) -}}
+{{- printf ":%d" $port -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 CSRF_TRUSTED_ORIGINS. Django needs the scheme, and an HTTPS origin must be
 listed explicitly even though its host is already in ALLOWED_HOSTS —
-otherwise the login POST fails the origin check.
+otherwise the login POST fails the origin check. ALLOWED_HOSTS deliberately
+carries no port: Django strips it before matching there.
 */}}
 {{- define "presence.csrfTrustedOrigins" -}}
 {{- $origins := list -}}
 {{- if .Values.ingress.enabled -}}
-{{- $origins = append $origins (printf "https://%s" .Values.ingress.host) -}}
+{{- $host := printf "%s%s" .Values.ingress.host (include "presence.publicPortSuffix" .) -}}
+{{- $origins = append $origins (printf "https://%s" $host) -}}
 {{- if not .Values.ingress.tls.enabled -}}
-{{- $origins = append $origins (printf "http://%s" .Values.ingress.host) -}}
+{{- $origins = append $origins (printf "http://%s" $host) -}}
 {{- end -}}
 {{- end -}}
 {{- $origins = concat $origins .Values.django.extraCsrfTrustedOrigins -}}

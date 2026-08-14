@@ -138,11 +138,10 @@ postgresql:
   password: ...
 ingress:
   enabled: true                  # host/class already default to
-  annotations:                   # presence.hopto.org on traefik
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+  publicPort: 8443               # presence.hopto.org on traefik
   tls:
     enabled: true
-    secretName: presence-tls     # cert-manager creates this
+    secretName: presence-tls     # cert-manager creates this, via `acme`
 compression:
   enabled: true
 ```
@@ -164,7 +163,9 @@ most likely to change:
 | `image.tag` | chart `appVersion` (`3.0.1`) | Which published tag to run. |
 | `ingress.enabled` / `ingress.host` | `false` / `presence.hopto.org` | Publish via the cluster ingress. The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
 | `ingress.className` | `traefik` | k3s's built-in ingress controller. |
-| `ingress.tls.enabled` / `ingress.tls.secretName` | `false` / `""` | Serve HTTPS from an existing certificate Secret (e.g. issued by cert-manager). |
+| `ingress.publicPort` | `0` | The port of the public URL, when it is not the scheme's default. Added to `DJANGO_CSRF_TRUSTED_ORIGINS`, which must match the browser's `Origin` header exactly. |
+| `ingress.tls.enabled` / `ingress.tls.secretName` | `false` / `""` | Serve HTTPS from a certificate Secret (cert-manager creates it; it need not exist beforehand). |
+| `ingress.tls.clusterIssuer` | `acme` | The cert-manager `ClusterIssuer` asked to fill that Secret. Blank it to manage the certificate yourself. |
 | `compression.enabled` | `false` | Compress responses via a Traefik `compress` middleware. Requires Traefik's CRDs. |
 | `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
 | `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
@@ -193,19 +194,51 @@ compose stack's Caddy sidecar does — the chart deploys no Caddy, and the
 exactly as Caddy does, so `request.is_secure()` is true and
 `SECURE_SSL_REDIRECT` does not loop.
 
-With cert-manager, name your issuer and the Secret it should create:
+With cert-manager, name the Secret it should create; the issuer defaults to
+`acme`, this cluster's `ClusterIssuer`:
 
 ```yaml
 ingress:
   enabled: true
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
   tls:
     enabled: true
     secretName: presence-tls    # cert-manager creates this
+    clusterIssuer: acme         # the default; set it if yours differs
 compression:
   enabled: true
 ```
+
+The chart writes that name into a `cert-manager.io/cluster-issuer`
+annotation, and **it must match an issuer that already exists**. A name that
+does not fails silently and completely: cert-manager parks the
+`CertificateRequest` on `Referenced "ClusterIssuer" not found`, so the Secret
+never appears, and Traefik then drops the entire Ingress rather than just its
+TLS — leaving the site serving Traefik's self-signed default certificate with
+a 404 behind it. Check both after an install:
+
+```
+kubectl -n presence get certificate,certificaterequest
+kubectl -n kube-system logs deploy/traefik | grep -i 'error configuring tls'
+```
+
+Set `ingress.annotations` yourself to override the annotation entirely (for a
+namespaced `Issuer`, say) — an explicit value is never overwritten — or blank
+`clusterIssuer` to keep cert-manager out of it and manage the Secret by hand.
+
+**If the site is not published on :443.** Give the chart the port the browser
+actually uses:
+
+```yaml
+ingress:
+  publicPort: 8443
+```
+
+This deployment's router will not forward :443, so it forwards :8443 to the
+cluster instead. Django compares `CSRF_TRUSTED_ORIGINS` against the browser's
+`Origin` header verbatim, and that header carries a non-default port, so
+without this the login POST is rejected as a CSRF failure even though
+everything else works. `ALLOWED_HOSTS` needs no port — Django strips it
+before matching there.
 
 `compression.enabled` renders a Traefik `Middleware`
 (`traefik.io/v1alpha1`, the v3 API group) and references it from the Ingress

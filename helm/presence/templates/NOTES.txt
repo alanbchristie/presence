@@ -16,7 +16,7 @@ starts driving the state machine.
 Reach the app:
 {{- if .Values.ingress.enabled }}
 
-  {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+  {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}{{ include "presence.publicPortSuffix" . }}{{ .Values.ingress.path }}
 {{- else }}
 
   kubectl --namespace {{ .Release.Namespace }} port-forward \

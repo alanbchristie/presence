@@ -114,14 +114,29 @@ ingress:
   # ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS are derived from it, so change it
   # here rather than setting those by hand.
   host: presence.hopto.org
+  # The port the public URL uses, when it is not the scheme's default. It is
+  # not the port anything in the cluster listens on: it is what the browser
+  # puts in its Origin header, and so what CSRF_TRUSTED_ORIGINS must name.
+  # Set it when a router publishes the site on a non-standard port — this
+  # deployment's forwards :8443 inwards, because it will not forward :443.
+  # Zero (and 443, or 80 without TLS) means the default, which browsers omit.
+  publicPort: 0
   path: /
   pathType: Prefix
   annotations: {}
   tls:
     enabled: false
-    # Secret holding the certificate for `host` (e.g. issued by cert-manager,
-    # in which case add the issuer annotation to ingress.annotations).
+    # Secret holding the certificate for `host`. cert-manager creates it; it
+    # does not need to exist beforehand.
     secretName: ""
+    # The cert-manager ClusterIssuer asked to fill that Secret, named in a
+    # `cert-manager.io/cluster-issuer` annotation on the Ingress. It must
+    # already exist on the cluster — cert-manager parks the request on
+    # "ClusterIssuer not found" otherwise, and because the Secret then never
+    # appears, Traefik drops the whole Ingress rather than just its TLS.
+    # `acme` is this cluster's issuer. Blank it to manage the certificate
+    # yourself, or set the annotation directly to use a namespaced Issuer.
+    clusterIssuer: acme
 
 # Response compression, the Kubernetes equivalent of the compose stack's
 # Caddy `encode zstd gzip`. Traefik does not compress by default.
