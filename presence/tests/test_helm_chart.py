@@ -772,6 +772,83 @@ def test_external_database_replaces_the_bundled_one():
     assert env["DJANGO_DB_PORT"] == "6432"
 
 
+# --- backups (Velero) ----------------------------------------------------
+
+VELERO_ANNOTATION = "backup.velero.io/backup-volumes"
+
+
+def pod_annotations(workload):
+    """The annotations on a Deployment's/StatefulSet's pod template."""
+    return workload["spec"]["template"]["metadata"].get("annotations") or {}
+
+
+def test_no_velero_annotation_by_default():
+    """Velero is a cluster-specific integration, so it is opt-in.
+
+    On a cluster running Velero without the node-agent, an unasked-for
+    File System Backup annotation turns a backup that used to succeed into
+    a PartiallyFailed one — so the chart says nothing unless asked.
+    """
+    docs = render()
+    workloads = by_kind(docs, "StatefulSet") + by_kind(docs, "Deployment")
+    assert workloads
+    for workload in workloads:
+        assert VELERO_ANNOTATION not in pod_annotations(workload)
+
+
+def test_velero_backs_up_every_persistent_volume_the_database_has():
+    """Velero's File System Backup copies only the volumes named here.
+
+    The annotation is matched against the *pod's* volume names, which for a
+    StatefulSet are the names of its volumeClaimTemplates — so derive the
+    expectation from those rather than hard-coding "data", and check the
+    container really mounts what we asked Velero to copy.
+    """
+    docs = render("--set", "velero.fileSystemBackup=true")
+    sts = one(docs, "StatefulSet")
+    claims = [
+        c["metadata"]["name"] for c in sts["spec"]["volumeClaimTemplates"]
+    ]
+    annotated = pod_annotations(sts)[VELERO_ANNOTATION].split(",")
+    assert annotated == claims
+    container = sts["spec"]["template"]["spec"]["containers"][0]
+    mounted = {m["name"] for m in container["volumeMounts"]}
+    assert set(annotated) <= mounted
+
+
+def test_velero_annotation_is_dropped_without_persistence():
+    """Without a PVC the database lives in an emptyDir...
+
+    ...which dies with the pod, so a copy of it would restore nothing.
+    """
+    docs = render(
+        "--set", "velero.fileSystemBackup=true",
+        "--set", "postgresql.persistence.enabled=false",
+    )
+    sts = one(docs, "StatefulSet")
+    assert VELERO_ANNOTATION not in pod_annotations(sts)
+
+
+def test_the_database_is_the_only_volume_worth_backing_up():
+    """Issue #71 also asks for any other volume holding important files.
+
+    There are none: the web and runner pods declare no volumes at all, and
+    the only thing they write outside the database is `collectstatic`
+    output, which lands in the image's own filesystem and is rebuilt on
+    every boot. This fails if a volume is added and left unconsidered.
+    """
+    docs = render("--set", "velero.fileSystemBackup=true")
+    for suffix in ("-web", "-runner"):
+        spec = one(docs, "Deployment", suffix)["spec"]["template"]["spec"]
+        assert not spec.get("volumes")
+
+
+def test_the_example_values_file_asks_for_backups():
+    """The deployment the example describes has Velero installed (#71)."""
+    values = yaml.safe_load(EXAMPLE_VALUES.read_text())
+    assert values["velero"]["fileSystemBackup"] is True
+
+
 # --- ARM / k3s -----------------------------------------------------------
 
 

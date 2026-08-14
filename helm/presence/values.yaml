@@ -189,6 +189,32 @@ postgresql:
     limits:
       memory: 512Mi
 
+# Backups, via Velero (https://velero.io). The chart installs nothing — it
+# only annotates the pod, for a Velero that is already on the cluster.
+velero:
+  # Name the database's volume in a `backup.velero.io/backup-volumes`
+  # annotation, so Velero's File System Backup copies the contents of the
+  # volume into the backup. Velero is opt-in here: without the annotation a
+  # backup captures the PVC object but none of the data in it.
+  #
+  # File System Backup rather than a volume snapshot because k3s's default
+  # `local-path` storage class has no CSI snapshotter — there is nothing to
+  # ask for a snapshot from.
+  #
+  # Off by default, like the chart's other cluster-specific integrations: on
+  # a cluster running Velero without its node-agent the annotation turns a
+  # backup that used to succeed into a PartiallyFailed one. Turn it on where
+  # Velero is installed — helm/values.example.yaml does.
+  #
+  # The copy is crash-consistent: PostgreSQL replays WAL when it starts on a
+  # restored volume, exactly as it would after losing power. That is not the
+  # same as a logical `pg_dump` of a quiesced database.
+  #
+  # Nothing else in the release needs backing up. The web and runner pods
+  # declare no volumes, and `collectstatic` writes into the container's own
+  # filesystem, which every boot rebuilds.
+  fileSystemBackup: false
+
 # Used only when postgresql.enabled is false.
 externalDatabase:
   host: ""
