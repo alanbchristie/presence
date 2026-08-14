@@ -160,7 +160,7 @@ most likely to change:
 | `django.secretKey` | — | **Required.** The app refuses to boot without it. |
 | `django.existingSecret` | `""` | Use a Secret you manage instead (keys: `django-secret-key`, `db-password`, `superuser-password`, `w3w-api-key`). |
 | `django.superuser.password` | `""` | Creates the `admin` superuser on first boot. Unset means no admin login. |
-| `image.tag` | chart `appVersion` (`3.0.1`) | Which published tag to run. |
+| `image.tag` | chart `appVersion` (`3.0.2`) | Which published tag to run. |
 | `ingress.enabled` / `ingress.host` | `false` / `presence.hopto.org` | Publish via the cluster ingress. The host is added to `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` automatically. |
 | `ingress.className` | `traefik` | k3s's built-in ingress controller. |
 | `ingress.publicPort` | `0` | The port of the public URL, when it is not the scheme's default. Added to `DJANGO_CSRF_TRUSTED_ORIGINS`, which must match the browser's `Origin` header exactly. |
