@@ -5,6 +5,7 @@ auth, the access-key CRUD views, and the inline key-creation path on the
 presence form.
 """
 import pytest
+import shortuuid
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.urls import reverse
@@ -29,6 +30,19 @@ def test_generated_values_are_distinct():
     a = AccessKey.objects.create(name="A")
     b = AccessKey.objects.create(name="B")
     assert a.value != b.value
+
+
+def test_generated_value_is_a_shortuuid():
+    """Values are shortuuid base57 (issue #67).
+
+    That alphabet excludes the punctuation ``-`` and ``_`` that
+    ``secrets.token_urlsafe`` can emit, and the look-alike characters
+    ``0``/``O``/``I``/``l``, so a key can be read aloud or retyped.
+    """
+    values = [AccessKey.objects.create(name=f"K{n}").value for n in range(25)]
+    for value in values:
+        assert len(value) == 22
+        assert set(value) <= set(shortuuid.get_alphabet())
 
 
 def test_name_must_be_unique():

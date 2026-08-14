@@ -1,8 +1,8 @@
 import re
-import secrets
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import shortuuid
 from astral.geocoder import database, lookup
 from astral.sun import sun
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
@@ -223,8 +223,14 @@ def generate_access_key_value() -> str:
 
     Used as the field default so keys created via the form, admin, or shell
     get a strong value without the user supplying one.
+
+    A shortuuid (issue #67): 22 characters of base57, a random UUID4 (122
+    bits) re-encoded without the punctuation ``-``/``_`` that
+    ``secrets.token_urlsafe`` can emit and without the look-alike characters
+    ``0``/``O``/``I``/``l``, so the value survives being read aloud, retyped,
+    or double-clicked.
     """
-    return secrets.token_urlsafe(32)
+    return shortuuid.uuid()
 
 
 #: Name of the location seeded by migration 0011. It is the initial value of
