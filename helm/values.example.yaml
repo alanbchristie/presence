@@ -32,15 +32,19 @@ ingress:
   enabled: true
   # host defaults to presence.hopto.org, className to traefik — set them here
   # if this deployment uses anything else.
-  annotations:
-    # cert-manager watches this and issues the certificate into the Secret
-    # named below. Use the name of an Issuer/ClusterIssuer you have already
-    # created.
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+  #
+  # The router in front of this cluster will not forward :443, so the site is
+  # published on :8443 instead. That port is what the browser puts in its
+  # Origin header, so Django has to trust it — which is what this value does.
+  # Drop it on any deployment reached over the standard port.
+  publicPort: 8443
   tls:
     enabled: true
     # cert-manager creates this Secret; it does not need to exist beforehand.
     secretName: presence-tls
+    # clusterIssuer defaults to `acme`, this cluster's ClusterIssuer. Set it
+    # here if yours is named differently — cert-manager issues nothing at all
+    # if the name does not match an issuer that already exists.
 
 # Traefik does not compress by default. This is the Kubernetes replacement
 # for the compose stack's Caddy `encode zstd gzip`.

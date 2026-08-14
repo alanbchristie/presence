@@ -405,6 +405,119 @@ def test_ingress_defaults_to_the_deployment_host_on_traefik():
     assert "presence.hopto.org" in env["DJANGO_ALLOWED_HOSTS"].split(",")
 
 
+CERT_MANAGER_ANNOTATION = "cert-manager.io/cluster-issuer"
+
+
+def escaped(annotation):
+    """Quote an annotation key for `helm --set`, which splits on dots."""
+    return annotation.replace(".", "\\.")
+
+
+def tls_args(*extra):
+    return (
+        "--set", "ingress.enabled=true",
+        "--set", "ingress.tls.enabled=true",
+        "--set", "ingress.tls.secretName=presence-tls",
+        *extra,
+    )
+
+
+def test_tls_names_the_clusters_cert_manager_issuer_by_default():
+    """The chart ships this cluster's issuer, which is named `acme`.
+
+    Naming an issuer that does not exist fails quietly and completely:
+    cert-manager parks the CertificateRequest on "ClusterIssuer not found",
+    the Secret is never created, and Traefik then drops the whole Ingress
+    rather than just its TLS — so the site serves Traefik's self-signed
+    default certificate and 404s behind it.
+    """
+    ingress = one(render(*tls_args()), "Ingress")
+    assert ingress["metadata"]["annotations"][CERT_MANAGER_ANNOTATION] == "acme"
+    assert ingress["spec"]["tls"][0]["secretName"] == "presence-tls"
+
+
+def test_cert_manager_issuer_is_configurable():
+    docs = render(*tls_args(
+        "--set", "ingress.tls.clusterIssuer=letsencrypt-staging",
+    ))
+    annotations = one(docs, "Ingress")["metadata"]["annotations"]
+    assert annotations[CERT_MANAGER_ANNOTATION] == "letsencrypt-staging"
+
+
+def test_no_issuer_annotation_without_tls():
+    ingress = one(render("--set", "ingress.enabled=true"), "Ingress")
+    assert CERT_MANAGER_ANNOTATION not in (
+        ingress["metadata"].get("annotations") or {}
+    )
+
+
+def test_a_blank_issuer_leaves_the_certificate_to_the_operator():
+    """cert-manager is not compulsory — a hand-managed Secret needs no issuer."""
+    docs = render(*tls_args("--set", "ingress.tls.clusterIssuer="))
+    ingress = one(docs, "Ingress")
+    assert CERT_MANAGER_ANNOTATION not in (
+        ingress["metadata"].get("annotations") or {}
+    )
+    # The Secret is still referenced; only the issuance request is dropped.
+    assert ingress["spec"]["tls"][0]["secretName"] == "presence-tls"
+
+
+def test_an_explicit_issuer_annotation_is_not_overwritten():
+    """As with the middleware reference, the operator's own value wins."""
+    docs = render(*tls_args(
+        "--set", f"ingress.annotations.{escaped(CERT_MANAGER_ANNOTATION)}=mine",
+    ))
+    annotations = one(docs, "Ingress")["metadata"]["annotations"]
+    assert annotations[CERT_MANAGER_ANNOTATION] == "mine"
+
+
+def csrf_origins(docs):
+    web = one(docs, "Deployment", "-web")
+    env = container_env(web["spec"]["template"]["spec"]["containers"][0])
+    return env["DJANGO_CSRF_TRUSTED_ORIGINS"].split(",")
+
+
+def test_csrf_origin_carries_a_non_standard_public_port():
+    """The browser sends the port in its Origin header, so Django's trusted
+    origin must carry it too.
+
+    This deployment's router cannot forward :443, so the app is published on
+    :8443 and every login POST would otherwise fail the CSRF origin check.
+    """
+    docs = render(*tls_args(
+        "--set", "ingress.host=presence.example.com",
+        "--set", "ingress.publicPort=8443",
+    ))
+    assert csrf_origins(docs) == ["https://presence.example.com:8443"]
+
+    # ALLOWED_HOSTS is compared without the port, so it must not gain one.
+    web = one(docs, "Deployment", "-web")
+    hosts = container_env(
+        web["spec"]["template"]["spec"]["containers"][0]
+    )["DJANGO_ALLOWED_HOSTS"].split(",")
+    assert "presence.example.com" in hosts
+    assert not [h for h in hosts if ":8443" in h]
+
+
+@pytest.mark.parametrize("port", ["0", "443"])
+def test_the_default_https_port_is_left_off_the_csrf_origin(port):
+    """Browsers omit the scheme's default port, so an origin carrying it
+    would never match. Zero means "the default", as it does in the chart."""
+    docs = render(*tls_args("--set", f"ingress.publicPort={port}"))
+    assert csrf_origins(docs) == ["https://presence.hopto.org"]
+
+
+@pytest.mark.parametrize("port", ["0", "80"])
+def test_the_default_http_port_is_left_off_the_csrf_origin(port):
+    """Without TLS the default is 80, not 443."""
+    docs = render(
+        "--set", "ingress.enabled=true",
+        "--set", f"ingress.publicPort={port}",
+    )
+    assert "http://presence.hopto.org" in csrf_origins(docs)
+    assert not [o for o in csrf_origins(docs) if ":80" in o]
+
+
 MIDDLEWARE_ANNOTATION = "traefik.ingress.kubernetes.io/router.middlewares"
 
 
