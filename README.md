@@ -462,59 +462,57 @@ there is no `migrate` or `createsuperuser` step to run by hand.
 
 #### Rehearsing a restore
 
-**You cannot rehearse this by restoring into a second namespace while the
-original is still running.** Velero points the restored PVC at the *original*
-PV, which is bound to the live claim, so the pod never schedules — and
-because Velero creates its `PodVolumeRestore`s only for claims that the
-restore itself created, the dump never moves. Pre-creating the claims does
-not help: Velero skips them (`already exists`) and again creates no
-`PodVolumeRestore`, finishing `Completed` with an empty volume and a pod
-stuck at `Init:0/1` on `restore-wait`. That data path assumes the original
-claims are gone — a real loss, or a different cluster.
-
-Rehearse the part you can, then: that the dump loads and the data comes
-back. The scratch release is named `presence` too, so every command is the
-one you would really run.
+Restore into a scratch namespace beside the live one, with
+`--namespace-mappings`, and load the dump exactly as a real restore would:
 
 ```
-# 1. a scratch stack, with nothing that can collide with the live one
-kubectl create namespace presence-rehearsal
-helm install presence ./helm/presence --namespace presence-rehearsal \
-  -f helm/values.yaml \
-  --set ingress.enabled=false --set compression.enabled=false \
-  --set velero.fileSystemBackup=false
-kubectl -n presence-rehearsal scale deploy/presence-web deploy/presence-runner --replicas=0
+velero restore create rehearsal \
+  --from-backup <backup-name> \
+  --include-namespaces presence \
+  --namespace-mappings presence:presence-rehearsal \
+  --exclude-resources ingresses.networking.k8s.io,middlewares.traefik.io \
+  --wait
+kubectl -n presence-rehearsal scale deploy --all --replicas=0
 
-# 2. a dump, taken with the command the pre-hook runs, moved across
-kubectl -n presence exec presence-postgresql-0 -- /bin/sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall --username "$POSTGRES_USER" \
-   --clean --if-exists > /var/lib/postgresql/dumps/backup.sql'
-kubectl -n presence exec presence-postgresql-0 -- \
-  cat /var/lib/postgresql/dumps/backup.sql > /tmp/backup.sql
-kubectl -n presence exec presence-postgresql-0 -- \
-  rm -f /var/lib/postgresql/dumps/backup.sql          # as the post-hook does
-kubectl -n presence-rehearsal exec -i presence-postgresql-0 -- \
-  sh -c 'cat > /tmp/backup.sql' < /tmp/backup.sql
-
-# 3. load it, and compare against the live database
 kubectl -n presence-rehearsal exec presence-postgresql-0 -- sh -c \
-  'psql -U "$POSTGRES_USER" -d postgres -f /tmp/backup.sql'
+  'psql -U "$POSTGRES_USER" -d postgres -f /var/lib/postgresql/dumps/backup.sql'
 kubectl -n presence-rehearsal exec presence-postgresql-0 -- sh -c \
   'psql -U "$POSTGRES_USER" -d presence -tAc "SELECT identifier FROM presence_presence ORDER BY identifier"'
 
-# 4. and away
 kubectl delete namespace presence-rehearsal
+velero restore delete rehearsal --confirm
 ```
 
-`velero.fileSystemBackup=false` keeps the scratch copy out of the backup
-schedule, and no ingress means it cannot claim the live hostname. Compare the
-dump's size with the `podvolumebackups` entry for the backup you are trusting
-— the same number of bytes means you rehearsed with the same artifact.
+The copy carries the same resource names as the live release, so those are
+the commands you would really run. Exclude the Ingress and its middleware, or
+the copy claims the live hostname; scaling the Deployments to nothing keeps
+the restored app off the data while you compare it.
+
+**Do not add `persistentvolumes` to that exclude list.** It looks like the
+tidy thing to do, and it quietly guts the restore. Velero skips a PV whose
+reclaim policy is `Delete` and *resets the claim* so it provisions a fresh
+volume; excluding PVs skips that reset, leaving the claim pointing at the PV
+the live namespace is using. The pod then never schedules, so Velero — which
+creates `PodVolumeRestore`s only once the pod is scheduled — never moves the
+dump, and the restore still reports `Completed`, with an empty volume and a
+pod stuck at `Init:0/1` on `restore-wait`. Pre-creating the claims to work
+around that only makes it worse: Velero skips them as `already exists` and
+creates no `PodVolumeRestore` at all.
+
+Check the data really moved, rather than trusting `Completed`:
+
+```
+kubectl get podvolumerestores -A
+```
+
+That should show `Completed` with the same byte count as the
+`podvolumebackups` entry for the backup you are trusting. The same number
+twice means you rehearsed with the same artifact, end to end.
 
 Last rehearsed 2026-08-15 against `daily-namespaced-backup-20260815095525`:
-40,069 bytes, matching that backup's `pg-dumpall-vol` exactly, and the
-identifiers and row counts came back matching the live database with only the
-two errors above.
+Velero restored the 40,069-byte dump into a fresh volume, and the identifiers
+and row counts came back matching the live database, with only the two errors
+above.
 
 ### What the chart will not let you scale
 
