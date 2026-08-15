@@ -103,15 +103,26 @@ release cadence: every application fix dragged a chart bump behind it. Do not
 reintroduce one; every `helm template`/`lint` invocation, in tests and CI
 alike, must pass `--set image.tag=…`.
 
-Backups are Velero's job (issue #71): `velero.fileSystemBackup` annotates the
-PostgreSQL pod with `backup.velero.io/backup-volumes: data` — Velero's opt-in
-File System Backup, used because the cluster's `local-path` storage class has
-no snapshotter. It is off by default: on a cluster with no Velero node-agent
-the annotation makes a backup fail rather than do nothing. The database
-volume is currently the **only** volume in the release, so anything that
-gains one and holds state has to join that annotation —
-`test_the_database_is_the_only_volume_worth_backing_up` fails when one
-appears.
+Backups are Velero's job (issues #71, #73). `velero.fileSystemBackup`
+annotates the PostgreSQL pod with Velero backup hooks: the pre-hook writes a
+`pg_dumpall` into a dedicated `pg-dumpall-vol` claim, that volume alone is
+named in `backup.velero.io/backup-volumes`, and the post-hook deletes the
+dump. **The live data directory is deliberately not backed up** — File System
+Backup (used because `local-path` has no snapshotter) reads a volume file by
+file while PostgreSQL writes to it, so a PGDATA copy can be torn across
+files; do not "fix" this by adding `data` to the annotation. The ordering is
+safe because Velero waits for the pod's volume backups before running post
+hooks.
+
+It is off by default: on a cluster with no Velero node-agent the annotations
+make a backup fail rather than do nothing. Toggling it changes
+`volumeClaimTemplates`, which is immutable on an existing StatefulSet, so
+that needs `kubectl delete statefulset --cascade=orphan` first (README,
+"Backups (Velero)"). The dump command reads `$POSTGRES_USER` in the
+container rather than a rendered username — it is the only role initdb
+creates. The database is currently the **only** state in the release;
+`test_the_database_is_the_only_volume_worth_backing_up` fails if another pod
+gains a volume, which would then need its own treatment.
 
 State-machine rules live in `runner._evaluate()`. Two non-obvious behaviors that
 must be preserved when editing it:

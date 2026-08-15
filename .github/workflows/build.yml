@@ -136,6 +136,7 @@ jobs:
             "$key --set nodeSelector.kubernetes\\.io/arch=arm64"
             "$key --set ingress.enabled=true --set compression.enabled=true"
             "$key --set velero.fileSystemBackup=true"
+            "$key --set velero.fileSystemBackup=true --set postgresql.persistence.enabled=false"
           )
           # The compression case renders a Traefik CRD, which the built-in
           # schemas do not cover. The CRDs-catalog location supplies it, so

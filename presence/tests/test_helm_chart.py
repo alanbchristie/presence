@@ -775,6 +775,9 @@ def test_external_database_replaces_the_bundled_one():
 # --- backups (Velero) ----------------------------------------------------
 
 VELERO_ANNOTATION = "backup.velero.io/backup-volumes"
+PRE_HOOK = "pre.hook.backup.velero.io/command"
+POST_HOOK = "post.hook.backup.velero.io/command"
+DUMP_VOLUME = "pg-dumpall-vol"
 
 
 def pod_annotations(workload):
@@ -782,44 +785,176 @@ def pod_annotations(workload):
     return workload["spec"]["template"]["metadata"].get("annotations") or {}
 
 
+def hook_command(sts, annotation):
+    """The shell command a Velero hook annotation carries.
+
+    Velero wants a JSON array — `["/bin/sh", "-c", "..."]` — so parse it as
+    one rather than string-matching the annotation, which would pass on a
+    value Velero itself could not read.
+    """
+    command = json.loads(pod_annotations(sts)[annotation])
+    assert command[:2] == ["/bin/sh", "-c"], command
+    assert len(command) == 3, command
+    return command[2]
+
+
+def mount_path(sts, volume_name):
+    """Where the database container mounts `volume_name`."""
+    container = sts["spec"]["template"]["spec"]["containers"][0]
+    mounts = {m["name"]: m["mountPath"] for m in container["volumeMounts"]}
+    return mounts[volume_name]
+
+
 def test_no_velero_annotation_by_default():
     """Velero is a cluster-specific integration, so it is opt-in.
 
     On a cluster running Velero without the node-agent, an unasked-for
     File System Backup annotation turns a backup that used to succeed into
-    a PartiallyFailed one — so the chart says nothing unless asked.
+    a PartiallyFailed one — so the chart says nothing unless asked, and
+    pays for no dump volume either.
     """
     docs = render()
     workloads = by_kind(docs, "StatefulSet") + by_kind(docs, "Deployment")
     assert workloads
     for workload in workloads:
-        assert VELERO_ANNOTATION not in pod_annotations(workload)
+        annotations = pod_annotations(workload)
+        assert VELERO_ANNOTATION not in annotations
+        assert PRE_HOOK not in annotations
+        assert POST_HOOK not in annotations
+    claims = one(docs, "StatefulSet")["spec"]["volumeClaimTemplates"]
+    assert [c["metadata"]["name"] for c in claims] == ["data"]
 
 
-def test_velero_backs_up_every_persistent_volume_the_database_has():
-    """Velero's File System Backup copies only the volumes named here.
+def test_velero_backs_up_the_dump_not_the_live_data_directory():
+    """A file-by-file copy of a running PostgreSQL is not a backup (#73).
 
-    The annotation is matched against the *pod's* volume names, which for a
-    StatefulSet are the names of its volumeClaimTemplates — so derive the
-    expectation from those rather than hard-coding "data", and check the
-    container really mounts what we asked Velero to copy.
+    Velero's File System Backup reads the files one at a time while the
+    server keeps writing, so the copy can be torn across them. The dump the
+    pre-hook writes is a consistent snapshot of the same data, so that — and
+    only that — is what the annotation names.
     """
     docs = render("--set", "velero.fileSystemBackup=true")
     sts = one(docs, "StatefulSet")
-    claims = [
-        c["metadata"]["name"] for c in sts["spec"]["volumeClaimTemplates"]
-    ]
     annotated = pod_annotations(sts)[VELERO_ANNOTATION].split(",")
-    assert annotated == claims
-    container = sts["spec"]["template"]["spec"]["containers"][0]
-    mounted = {m["name"] for m in container["volumeMounts"]}
-    assert set(annotated) <= mounted
+    assert annotated == [DUMP_VOLUME]
+    assert "data" not in annotated
 
 
-def test_velero_annotation_is_dropped_without_persistence():
-    """Without a PVC the database lives in an emptyDir...
+def test_the_dump_volume_is_a_claim_the_database_container_mounts():
+    """Velero matches the annotation against the *pod's* volume names...
 
-    ...which dies with the pod, so a copy of it would restore nothing.
+    ...which for a StatefulSet are its volumeClaimTemplates. An annotation
+    naming a volume the pod does not have backs nothing up.
+    """
+    docs = render("--set", "velero.fileSystemBackup=true")
+    sts = one(docs, "StatefulSet")
+    claims = {
+        c["metadata"]["name"]: c for c in sts["spec"]["volumeClaimTemplates"]
+    }
+    assert set(claims) == {"data", DUMP_VOLUME}
+    dump = claims[DUMP_VOLUME]
+    assert dump["spec"]["resources"]["requests"]["storage"] == "200Mi"
+    assert dump["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert mount_path(sts, DUMP_VOLUME)
+
+
+def test_the_pre_hook_dumps_the_whole_cluster_into_that_volume():
+    """The dump has to land where Velero is going to look for it."""
+    docs = render("--set", "velero.fileSystemBackup=true")
+    sts = one(docs, "StatefulSet")
+    command = hook_command(sts, PRE_HOOK)
+    assert "pg_dumpall" in command
+    # Restorable into a cluster that already has the roles and database.
+    assert "--clean" in command and "--if-exists" in command
+    written = command.split(">")[-1].strip()
+    assert written.startswith(mount_path(sts, DUMP_VOLUME) + "/")
+
+
+def test_the_post_hook_removes_exactly_what_the_pre_hook_wrote():
+    """The dump is transient: it exists for the length of a backup.
+
+    Velero waits for the pod's volume backups before running post hooks, so
+    the file is safely gone again afterwards rather than sitting on disk.
+    """
+    docs = render("--set", "velero.fileSystemBackup=true")
+    sts = one(docs, "StatefulSet")
+    written = hook_command(sts, PRE_HOOK).split(">")[-1].strip()
+    removed = hook_command(sts, POST_HOOK)
+    assert removed.split()[0] == "rm"
+    assert removed.split()[-1] == written
+
+
+def test_the_dump_authenticates_as_the_superuser_initdb_made():
+    """Only `postgresql.username` exists as a role, and only it is super.
+
+    A hard-coded `-U postgres` fails on this deployment, because the image
+    creates POSTGRES_USER and nothing else. The hook has to read the env
+    var, so the rendered command must not name the user at all.
+    """
+    docs = render(
+        "--set", "velero.fileSystemBackup=true",
+        "--set", "postgresql.username=someone-else",
+    )
+    command = hook_command(one(docs, "StatefulSet"), PRE_HOOK)
+    assert "$POSTGRES_USER" in command
+    assert "someone-else" not in command
+    assert "-U postgres" not in command
+    assert "--username postgres" not in command
+
+
+def test_the_dump_volume_and_hook_timeout_are_configurable():
+    """A bigger database needs a bigger volume and a longer hook (#73).
+
+    Velero's default hook timeout is 30 seconds, which a slow dump would
+    exceed — and an expired pre-hook fails the backup.
+    """
+    docs = render(
+        "--set", "velero.fileSystemBackup=true",
+        "--set", "velero.dump.size=1Gi",
+        "--set", "velero.dump.timeout=20m",
+    )
+    sts = one(docs, "StatefulSet")
+    claims = {
+        c["metadata"]["name"]: c for c in sts["spec"]["volumeClaimTemplates"]
+    }
+    storage = claims[DUMP_VOLUME]["spec"]["resources"]["requests"]["storage"]
+    assert storage == "1Gi"
+    annotations = pod_annotations(sts)
+    assert annotations["pre.hook.backup.velero.io/timeout"] == "20m"
+    assert annotations["post.hook.backup.velero.io/timeout"] == "20m"
+
+
+def test_the_hooks_name_the_container_they_run_in():
+    """Velero defaults to the pod's first container...
+
+    ...so naming it explicitly keeps the hooks working if one is ever added
+    in front of the database.
+    """
+    docs = render("--set", "velero.fileSystemBackup=true")
+    sts = one(docs, "StatefulSet")
+    container = sts["spec"]["template"]["spec"]["containers"][0]["name"]
+    annotations = pod_annotations(sts)
+    for hook in ("pre", "post"):
+        assert annotations[f"{hook}.hook.backup.velero.io/container"] == (
+            container
+        )
+
+
+def test_the_dump_volume_follows_the_databases_storage_class():
+    """Both volumes belong on the same storage, named once."""
+    docs = render(
+        "--set", "velero.fileSystemBackup=true",
+        "--set", "postgresql.persistence.storageClass=fast-local",
+    )
+    claims = one(docs, "StatefulSet")["spec"]["volumeClaimTemplates"]
+    assert {c["spec"]["storageClassName"] for c in claims} == {"fast-local"}
+
+
+def test_no_backup_machinery_without_persistence():
+    """A deployment whose database dies with its pod is not one to back up.
+
+    Persistence off is the throwaway configuration — there is nothing to
+    restore into, so it gets no dump volume and no hooks either.
     """
     docs = render(
         "--set", "velero.fileSystemBackup=true",
@@ -827,6 +962,10 @@ def test_velero_annotation_is_dropped_without_persistence():
     )
     sts = one(docs, "StatefulSet")
     assert VELERO_ANNOTATION not in pod_annotations(sts)
+    assert PRE_HOOK not in pod_annotations(sts)
+    assert "volumeClaimTemplates" not in sts["spec"]
+    container = sts["spec"]["template"]["spec"]["containers"][0]
+    assert [m["name"] for m in container["volumeMounts"]] == ["data"]
 
 
 def test_the_database_is_the_only_volume_worth_backing_up():
