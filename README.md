@@ -343,6 +343,14 @@ Two more things worth knowing:
   seconds by default, which a large dump would overrun — and a pre-hook that
   times out fails the backup. The chart asks for `5m`; raise
   `velero.dump.timeout` if the database ever grows into it.
+- **Turn volume snapshots off on the schedule.** Velero tries a native
+  snapshot of every PVC unless told not to, and there is no cloud disk behind
+  a `local-path` PV to snapshot. With the AWS plugin configured that fails the
+  backup with `missing region in aws configuration` and marks it
+  `PartiallyFailed` even though the dump was copied perfectly well. Set
+  `spec.template.snapshotVolumes: false` on the Schedule — this backup does
+  not depend on snapshots, which is the whole point of it. Supplying a region
+  would only move the failure further along.
 
 | Value | Default | Purpose |
 | --- | --- | --- |
@@ -416,9 +424,18 @@ zero-byte or missing volume means the pre-hook failed — `velero backup logs
 
 #### Restoring
 
-The restored `data` volume comes back **empty** (it is not in the backup);
-what comes back is `backup.sql` in the dump volume. Stop the app, load it,
-start the app:
+A restore is two steps, because the backup holds a dump rather than a data
+directory. Velero brings the objects and the dump volume back; you load the
+dump.
+
+```
+velero restore create --from-backup <backup-name> --include-namespaces presence
+```
+
+The `data` volume comes back **empty** — it is deliberately not in the
+backup — so PostgreSQL initialises a new cluster on it and the web
+entrypoint migrates an empty schema onto it. What matters is `backup.sql`,
+which comes back in the dump volume. Stop the app, load it, start the app:
 
 ```
 kubectl -n presence scale deploy/presence-web deploy/presence-runner --replicas=0
@@ -437,6 +454,67 @@ harmless — you are logged in as the role the dump is trying to recreate, and
 ERROR:  current user cannot be dropped
 ERROR:  role "presence" already exists
 ```
+
+Nothing else is needed afterwards. `pg_dumpall` carries `django_migrations`
+and `auth_user` along with the application tables, so the restored database
+is already at the right migration and the admin login is the one you had —
+there is no `migrate` or `createsuperuser` step to run by hand.
+
+#### Rehearsing a restore
+
+**You cannot rehearse this by restoring into a second namespace while the
+original is still running.** Velero points the restored PVC at the *original*
+PV, which is bound to the live claim, so the pod never schedules — and
+because Velero creates its `PodVolumeRestore`s only for claims that the
+restore itself created, the dump never moves. Pre-creating the claims does
+not help: Velero skips them (`already exists`) and again creates no
+`PodVolumeRestore`, finishing `Completed` with an empty volume and a pod
+stuck at `Init:0/1` on `restore-wait`. That data path assumes the original
+claims are gone — a real loss, or a different cluster.
+
+Rehearse the part you can, then: that the dump loads and the data comes
+back. The scratch release is named `presence` too, so every command is the
+one you would really run.
+
+```
+# 1. a scratch stack, with nothing that can collide with the live one
+kubectl create namespace presence-rehearsal
+helm install presence ./helm/presence --namespace presence-rehearsal \
+  -f helm/values.yaml \
+  --set ingress.enabled=false --set compression.enabled=false \
+  --set velero.fileSystemBackup=false
+kubectl -n presence-rehearsal scale deploy/presence-web deploy/presence-runner --replicas=0
+
+# 2. a dump, taken with the command the pre-hook runs, moved across
+kubectl -n presence exec presence-postgresql-0 -- /bin/sh -c \
+  'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall --username "$POSTGRES_USER" \
+   --clean --if-exists > /var/lib/postgresql/dumps/backup.sql'
+kubectl -n presence exec presence-postgresql-0 -- \
+  cat /var/lib/postgresql/dumps/backup.sql > /tmp/backup.sql
+kubectl -n presence exec presence-postgresql-0 -- \
+  rm -f /var/lib/postgresql/dumps/backup.sql          # as the post-hook does
+kubectl -n presence-rehearsal exec -i presence-postgresql-0 -- \
+  sh -c 'cat > /tmp/backup.sql' < /tmp/backup.sql
+
+# 3. load it, and compare against the live database
+kubectl -n presence-rehearsal exec presence-postgresql-0 -- sh -c \
+  'psql -U "$POSTGRES_USER" -d postgres -f /tmp/backup.sql'
+kubectl -n presence-rehearsal exec presence-postgresql-0 -- sh -c \
+  'psql -U "$POSTGRES_USER" -d presence -tAc "SELECT identifier FROM presence_presence ORDER BY identifier"'
+
+# 4. and away
+kubectl delete namespace presence-rehearsal
+```
+
+`velero.fileSystemBackup=false` keeps the scratch copy out of the backup
+schedule, and no ingress means it cannot claim the live hostname. Compare the
+dump's size with the `podvolumebackups` entry for the backup you are trusting
+— the same number of bytes means you rehearsed with the same artifact.
+
+Last rehearsed 2026-08-15 against `daily-namespaced-backup-20260815095525`:
+40,069 bytes, matching that backup's `pg-dumpall-vol` exactly, and the
+identifiers and row counts came back matching the live database with only the
+two errors above.
 
 ### What the chart will not let you scale
 
