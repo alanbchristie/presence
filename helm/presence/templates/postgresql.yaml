@@ -1,5 +1,21 @@
 {{- if .Values.postgresql.enabled }}
 {{/*
+Backups (issue #73). Velero's File System Backup reads a volume file by
+file while the database keeps writing, so a copy of a live PGDATA can be
+torn across those files. Instead the pod carries backup hooks: Velero runs
+`pg_dumpall` into a small dedicated volume, backs that volume up, and the
+post-hook deletes the dump again — Velero waits for the pod's volume
+backups before running post hooks, so the file cannot be removed out from
+under the copy.
+
+$dumpFile is what the two hooks agree on and what the container has to
+mount, so it is defined once here.
+*/}}
+{{- $backup := and .Values.velero.fileSystemBackup .Values.postgresql.persistence.enabled }}
+{{- $dumpVolume := "pg-dumpall-vol" }}
+{{- $dumpDir := "/var/lib/postgresql/dumps" }}
+{{- $dumpFile := printf "%s/backup.sql" $dumpDir }}
+{{/*
 A single-instance PostgreSQL for the release, equivalent to compose's `db`
 service: one replica, one volume, no host exposure. Disable it
 (postgresql.enabled=false) and fill in `externalDatabase` to point the app
@@ -46,14 +62,26 @@ spec:
       {{/*
       Velero's File System Backup is opt-in per pod: it copies only the
       volumes this annotation names, matching them by the name the *pod*
-      gives them — which for a StatefulSet is the volumeClaimTemplate's
-      name, `data` below. Without persistence that volume is an emptyDir
-      holding nothing worth restoring, so the annotation is left off
-      (issue #71).
+      gives them — which for a StatefulSet is a volumeClaimTemplate's name.
+      It names the dump volume alone; see the note at the top of this file
+      for why the live data directory is not in the list.
+
+      pg_dumpall reads $POSTGRES_USER rather than a rendered username: that
+      env var is the only role initdb created, and the only superuser. The
+      dump is --clean --if-exists so it loads into an empty cluster and over
+      an existing one alike.
       */}}
-      {{- if and .Values.velero.fileSystemBackup .Values.postgresql.persistence.enabled }}
+      {{- if $backup }}
       annotations:
-        backup.velero.io/backup-volumes: data
+        backup.velero.io/backup-volumes: {{ $dumpVolume }}
+        {{- $dump := printf "PGPASSWORD=\"$POSTGRES_PASSWORD\" pg_dumpall --username \"$POSTGRES_USER\" --clean --if-exists > %s" $dumpFile }}
+        pre.hook.backup.velero.io/command: {{ list "/bin/sh" "-c" $dump | toRawJson | quote }}
+        pre.hook.backup.velero.io/container: postgresql
+        pre.hook.backup.velero.io/timeout: {{ .Values.velero.dump.timeout | quote }}
+        {{- $remove := printf "rm -f %s" $dumpFile }}
+        post.hook.backup.velero.io/command: {{ list "/bin/sh" "-c" $remove | toRawJson | quote }}
+        post.hook.backup.velero.io/container: postgresql
+        post.hook.backup.velero.io/timeout: {{ .Values.velero.dump.timeout | quote }}
       {{- end }}
     spec:
       {{- with (include "presence.scheduling" . | trim) }}
@@ -101,6 +129,10 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /var/lib/postgresql/data
+        {{- if $backup }}
+        - name: {{ $dumpVolume }}
+          mountPath: {{ $dumpDir }}
+        {{- end }}
       {{- if not .Values.postgresql.persistence.enabled }}
       volumes:
       - name: data
@@ -119,5 +151,28 @@ spec:
       resources:
         requests:
           storage: {{ .Values.postgresql.persistence.size | quote }}
+  {{/*
+  The dump volume holds one plain-text SQL file for the length of a backup.
+  It shares the data volume's storage class and access mode — one database,
+  one pod, one place to put both — and only its size is worth a value.
+
+  Adding it changes volumeClaimTemplates, which Kubernetes will not let you
+  edit on a StatefulSet that already exists: enabling backups on a running
+  release needs `kubectl delete statefulset --cascade=orphan` first (README,
+  "Backups"). The orphaned pod and its data PVC survive that.
+  */}}
+  {{- if $backup }}
+  - metadata:
+      name: {{ $dumpVolume }}
+    spec:
+      accessModes:
+      - {{ .Values.postgresql.persistence.accessMode }}
+      {{- with .Values.postgresql.persistence.storageClass }}
+      storageClassName: {{ . | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.velero.dump.size | quote }}
+  {{- end }}
   {{- end }}
 {{- end }}

@@ -12,7 +12,7 @@ type: application
 # — including fixes that touch nothing here. The operator names the image
 # instead: `image.tag` is required, and the chart refuses to render without
 # it.
-version: 0.3.0
+version: 0.4.0
 
 # Issue #62 targets Kubernetes v1.36 and beyond (k3s on ARM).
 kubeVersion: ">=1.36.0-0"

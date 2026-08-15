@@ -189,31 +189,54 @@ postgresql:
     limits:
       memory: 512Mi
 
-# Backups, via Velero (https://velero.io). The chart installs nothing — it
-# only annotates the pod, for a Velero that is already on the cluster.
+# Backups, via Velero (https://velero.io). The chart installs nothing and
+# schedules nothing — it annotates the database pod, for a Velero that is
+# already on the cluster.
 velero:
-  # Name the database's volume in a `backup.velero.io/backup-volumes`
-  # annotation, so Velero's File System Backup copies the contents of the
-  # volume into the backup. Velero is opt-in here: without the annotation a
-  # backup captures the PVC object but none of the data in it.
+  # Back the database up as a `pg_dumpall`, taken by Velero's backup hooks
+  # (issue #73):
+  #
+  #   pre-hook    dump the whole cluster into a small dedicated volume
+  #   the backup  copy that volume, with File System Backup
+  #   post-hook   delete the dump again
+  #
+  # It is the dump that gets backed up, never the live data directory. File
+  # System Backup reads a volume one file at a time while PostgreSQL carries
+  # on writing, so a copy of PGDATA can be torn across those files; the dump
+  # is a consistent view of the same data, and it loads into any PostgreSQL
+  # rather than only a byte-compatible one. Velero waits for the pod's
+  # volume backups before it runs post hooks, so the dump cannot be deleted
+  # out from under the copy.
   #
   # File System Backup rather than a volume snapshot because k3s's default
   # `local-path` storage class has no CSI snapshotter — there is nothing to
   # ask for a snapshot from.
   #
   # Off by default, like the chart's other cluster-specific integrations: on
-  # a cluster running Velero without its node-agent the annotation turns a
+  # a cluster running Velero without its node-agent the annotations turn a
   # backup that used to succeed into a PartiallyFailed one. Turn it on where
   # Velero is installed — helm/values.example.yaml does.
   #
-  # The copy is crash-consistent: PostgreSQL replays WAL when it starts on a
-  # restored volume, exactly as it would after losing power. That is not the
-  # same as a logical `pg_dump` of a quiesced database.
+  # Changing this adds or removes a volumeClaimTemplate, which Kubernetes
+  # will not let you edit on a StatefulSet that already exists. On a running
+  # release, delete the StatefulSet first — see the README, "Backups
+  # (Velero)"; the pod and the data PVC both survive that.
   #
   # Nothing else in the release needs backing up. The web and runner pods
   # declare no volumes, and `collectstatic` writes into the container's own
   # filesystem, which every boot rebuilds.
   fileSystemBackup: false
+
+  # The dump volume. It holds one plain-text SQL file for the length of a
+  # backup and is empty the rest of the time. It takes the database's own
+  # storage class and access mode, so only its size is settable here.
+  dump:
+    # Enough for one `pg_dumpall` of this database, with room to grow.
+    size: 200Mi
+    # How long Velero allows each hook. Velero's own default is 30 seconds,
+    # which a large dump would overrun — and a pre-hook that times out
+    # fails the backup.
+    timeout: 5m
 
 # Used only when postgresql.enabled is false.
 externalDatabase:

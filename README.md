@@ -178,7 +178,7 @@ most likely to change:
 | `compression.enabled` | `false` | Compress responses via a Traefik `compress` middleware. Requires Traefik's CRDs. |
 | `postgresql.enabled` | `true` | Turn off to use `externalDatabase.*` instead. |
 | `postgresql.persistence.size` | `2Gi` | PVC size (k3s defaults to the `local-path` storage class). |
-| `velero.fileSystemBackup` | `false` | Ask Velero to copy the database volume's contents into its backups. Needs Velero and its node-agent on the cluster. |
+| `velero.fileSystemBackup` | `false` | Back the database up, as a `pg_dumpall` taken by Velero's backup hooks. Needs Velero and its node-agent on the cluster. |
 | `nodeSelector` | `{}` | Pin the pods, e.g. `kubernetes.io/arch: arm64` on a mixed cluster. |
 
 **Serve it over TLS.** With `DJANGO_DEBUG` off — the default, and the only
@@ -289,62 +289,125 @@ This setting adds compression for the dynamic HTML.
 
 ### Backups (Velero)
 
-The database volume is the only thing in the release worth keeping. The web
-and runner pods declare no volumes at all, and the only thing they write
-outside the database is `collectstatic` output, which lands in the
-container's own filesystem and is rebuilt on every boot.
+The database is the only thing in the release worth keeping. The web and
+runner pods declare no volumes at all, and the only thing they write outside
+the database is `collectstatic` output, which lands in the container's own
+filesystem and is rebuilt on every boot.
 
-[Velero](https://velero.io) — already installed on this cluster (issue #71)
-— is what backs that volume up, but it will not copy a volume's *contents*
-unless the pod asks it to. Ask, with:
+[Velero](https://velero.io) — already installed on this cluster — backs it
+up as a **`pg_dumpall`**, not as a copy of the data directory (issues #71,
+#73). Turn it on with:
 
 ```yaml
 velero:
   fileSystemBackup: true
 ```
 
-which annotates the PostgreSQL pod:
+which annotates the PostgreSQL pod with a pair of backup hooks and the
+volume they write into:
 
 ```yaml
 annotations:
-  backup.velero.io/backup-volumes: data
+  backup.velero.io/backup-volumes: pg-dumpall-vol
+  pre.hook.backup.velero.io/command: >-
+    ["/bin/sh","-c","PGPASSWORD=\"$POSTGRES_PASSWORD\" pg_dumpall
+     --username \"$POSTGRES_USER\" --clean --if-exists
+     > /var/lib/postgresql/dumps/backup.sql"]
+  post.hook.backup.velero.io/command: >-
+    ["/bin/sh","-c","rm -f /var/lib/postgresql/dumps/backup.sql"]
 ```
 
-`data` is the `volumeClaimTemplate`'s name, which is also the name the pod
-mounts it under — the name Velero matches on. The chart installs no Velero
-of its own, schedules nothing, and leaves the annotation off when
-`postgresql.persistence.enabled` is false (an emptyDir holds nothing worth
-restoring).
+Every backup therefore: dumps the whole cluster into `pg-dumpall-vol`, a
+200Mi volume that exists only for this; copies that volume; then deletes the
+dump. Velero waits for the pod's volume backups to be processed before it
+runs post hooks, so the `rm` cannot beat the copy. Between backups the
+volume sits empty.
 
-Three things worth knowing before turning it on:
+**Why not just copy the data directory?** Because File System Backup reads a
+volume one file at a time while PostgreSQL carries on writing to it, so the
+copy can be torn *across* files — not merely crash-consistent, but a set of
+files that never existed together. There is no snapshot to hide behind: the
+cluster's default `local-path` storage class has no CSI snapshotter, which
+is why FSB is in play at all. A `pg_dumpall` is a consistent view of the
+same data, taken through a transaction, and it loads into any PostgreSQL
+rather than only a byte-compatible one. So `data` is deliberately **not** in
+the `backup-volumes` list.
 
-- **Without the annotation a backup is close to worthless here.** Velero's
-  File System Backup is opt-in per pod; a backup taken without it stores the
-  PVC and PV *objects* and none of the bytes behind them. Restoring that
-  rebinds to whatever the PV still points at — fine after an accidental
-  `kubectl delete`, no help at all when the disk or the node is what you
-  lost.
-- **It copies files rather than snapshotting.** The cluster's default
-  storage class is `local-path`, which has no CSI snapshotter, so there is
-  nothing to ask for a snapshot from. Velero's **node-agent** does the
-  reading, and it must be running: annotate a pod on a cluster without it
-  and the backup finishes `PartiallyFailed` instead of succeeding. That is
-  why the value defaults to off.
-- **The copy is crash-consistent, not quiesced.** PostgreSQL replays WAL the
-  first time it starts on a restored volume, exactly as it would after
-  losing power. That is a sound recovery, but it is not the same as a
-  logical `pg_dump` of a quiet database — take one of those too before
-  anything irreversible.
+Two more things worth knowing:
 
-Check that the data really is being copied, rather than trusting a green
-backup:
+- **Velero's node-agent must be running.** It is what reads the volume;
+  annotate a pod on a cluster without it and the backup finishes
+  `PartiallyFailed` instead of succeeding. That is why the value defaults to
+  off.
+- **The hook timeout is Velero's, not the chart's.** Velero allows a hook 30
+  seconds by default, which a large dump would overrun — and a pre-hook that
+  times out fails the backup. The chart asks for `5m`; raise
+  `velero.dump.timeout` if the database ever grows into it.
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `velero.fileSystemBackup` | `false` | Take the dump and back it up. |
+| `velero.dump.size` | `200Mi` | Size of the volume the dump is written to. |
+| `velero.dump.timeout` | `5m` | How long Velero allows each hook. |
+
+The dump volume takes the database's own `storageClass` and `accessMode`,
+and the whole arrangement is skipped when
+`postgresql.persistence.enabled` is false — a database that dies with its
+pod is not one to back up.
+
+#### Turning it on for a release that is already running
+
+The dump volume is a second `volumeClaimTemplate`, and Kubernetes does not
+allow `volumeClaimTemplates` to change on a StatefulSet that already exists
+— `helm upgrade` fails with `Forbidden: updates to statefulset spec for
+fields other than 'replicas', ... are forbidden`. Delete the StatefulSet
+first, keeping everything it manages:
+
+```
+kubectl -n presence delete statefulset presence-postgresql --cascade=orphan
+helm upgrade --install presence ./helm/presence \
+  --namespace presence -f helm/values.yaml
+```
+
+`--cascade=orphan` leaves the pod running and, more to the point, leaves the
+`data-presence-postgresql-0` PVC alone: the new StatefulSet adopts the pod,
+then replaces it with one that also mounts the dump volume. The database
+survives. The same applies in reverse if you ever turn backups off.
+
+#### Checking a backup actually contains something
 
 ```
 velero backup describe <backup-name> --details
 kubectl -n velero get podvolumebackups
 ```
 
-Each annotated volume should appear with `Completed` and a non-zero size.
+`pg-dumpall-vol` should be listed as `Completed` with a non-zero size. A
+zero-byte or missing volume means the pre-hook failed — `velero backup logs
+<backup-name>` shows the hook's output.
+
+#### Restoring
+
+The restored `data` volume comes back **empty** (it is not in the backup);
+what comes back is `backup.sql` in the dump volume. Stop the app, load it,
+start the app:
+
+```
+kubectl -n presence scale deploy/presence-web deploy/presence-runner --replicas=0
+kubectl -n presence exec presence-postgresql-0 -- sh -c \
+  'psql -U "$POSTGRES_USER" -d postgres -f /var/lib/postgresql/dumps/backup.sql'
+kubectl -n presence scale deploy/presence-web deploy/presence-runner --replicas=1
+```
+
+Scaling the app down first matters: the dump's `DROP DATABASE presence`
+cannot run while a client is connected to it. Connect to the `postgres`
+database, not `presence`, for the same reason. Two errors are expected and
+harmless — you are logged in as the role the dump is trying to recreate, and
+`psql` carries on past both:
+
+```
+ERROR:  current user cannot be dropped
+ERROR:  role "presence" already exists
+```
 
 ### What the chart will not let you scale
 
