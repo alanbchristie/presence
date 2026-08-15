@@ -116,9 +116,12 @@ hooks.
 
 It is off by default: on a cluster with no Velero node-agent the annotations
 make a backup fail rather than do nothing. Toggling it changes
-`volumeClaimTemplates`, which is immutable on an existing StatefulSet, so
-that needs `kubectl delete statefulset --cascade=orphan` first (README,
-"Backups (Velero)"). The dump command reads `$POSTGRES_USER` in the
+`volumeClaimTemplates`, which is immutable on an existing StatefulSet, so it
+needs `kubectl delete statefulset presence-postgresql` (plain, **not**
+`--cascade=orphan`: an adopted pod's volumes cannot be patched, which wedges
+the controller on `FailedUpdate` and leaves the new PVC `Pending`) before the
+upgrade. The claims survive the delete — retention defaults to `Retain`. See
+the README, "Backups (Velero)". The dump command reads `$POSTGRES_USER` in the
 container rather than a rendered username — it is the only role initdb
 creates. The database is currently the **only** state in the release;
 `test_the_database_is_the_only_volume_worth_backing_up` fails if another pod

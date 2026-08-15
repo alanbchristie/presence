@@ -360,19 +360,48 @@ pod is not one to back up.
 The dump volume is a second `volumeClaimTemplate`, and Kubernetes does not
 allow `volumeClaimTemplates` to change on a StatefulSet that already exists
 — `helm upgrade` fails with `Forbidden: updates to statefulset spec for
-fields other than 'replicas', ... are forbidden`. Delete the StatefulSet
-first, keeping everything it manages:
+fields other than 'replicas', ... are forbidden`. Delete the StatefulSet,
+then upgrade:
 
 ```
-kubectl -n presence delete statefulset presence-postgresql --cascade=orphan
+kubectl -n presence delete statefulset presence-postgresql
 helm upgrade --install presence ./helm/presence \
   --namespace presence -f helm/values.yaml
 ```
 
-`--cascade=orphan` leaves the pod running and, more to the point, leaves the
-`data-presence-postgresql-0` PVC alone: the new StatefulSet adopts the pod,
-then replaces it with one that also mounts the dump volume. The database
-survives. The same applies in reverse if you ever turn backups off.
+The database survives that. Deleting a StatefulSet does not delete its
+claims — the chart sets no `persistentVolumeClaimRetentionPolicy`, so both
+default to `Retain`, which you can confirm with:
+
+```
+kubectl -n presence get statefulset presence-postgresql \
+  -o jsonpath='{.spec.persistentVolumeClaimRetentionPolicy}'
+```
+
+so `data-presence-postgresql-0` outlives it and the replacement pod mounts
+the same volume it did before. The database is down between the two
+commands. The same applies in reverse if you ever turn backups off.
+
+**Do not use `--cascade=orphan` here.** Keeping the old pod alive through the
+upgrade looks like the gentler option, but it wedges: the new StatefulSet
+adopts a pod whose volumes no longer match its template, and a pod's volumes
+cannot be changed after it is created. The controller creates the new PVC,
+fails to patch the pod, and gives up before the point where it would roll
+it — on every sync, indefinitely:
+
+```
+Warning  FailedUpdate  statefulset/presence-postgresql
+  Update Pod presence-postgresql-0 ... failed error: Pod "presence-postgresql-0"
+  is invalid: spec: Forbidden: pod updates may not change fields other than
+  `spec.containers[*].image` ...
+```
+
+Meanwhile `pg-dumpall-vol-presence-postgresql-0` sits `Pending` for ever,
+because `local-path` binds on first consumer and the pod that would consume
+it is the one the controller cannot create. If you are already in that
+state, delete the pod by hand — `kubectl -n presence delete pod
+presence-postgresql-0` — and the StatefulSet builds the replacement
+correctly.
 
 #### Checking a backup actually contains something
 
