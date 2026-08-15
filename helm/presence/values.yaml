@@ -219,8 +219,9 @@ velero:
   #
   # Changing this adds or removes a volumeClaimTemplate, which Kubernetes
   # will not let you edit on a StatefulSet that already exists. On a running
-  # release, delete the StatefulSet first — see the README, "Backups
-  # (Velero)"; the pod and the data PVC both survive that.
+  # release, delete the StatefulSet first — plainly, not with
+  # `--cascade=orphan`, which wedges the rollout. The claims (and so the
+  # database) survive it. See the README, "Backups (Velero)".
   #
   # Nothing else in the release needs backing up. The web and runner pods
   # declare no volumes, and `collectstatic` writes into the container's own

@@ -158,8 +158,9 @@ spec:
 
   Adding it changes volumeClaimTemplates, which Kubernetes will not let you
   edit on a StatefulSet that already exists: enabling backups on a running
-  release needs `kubectl delete statefulset --cascade=orphan` first (README,
-  "Backups"). The orphaned pod and its data PVC survive that.
+  release means deleting the StatefulSet first, plainly rather than with
+  --cascade=orphan (README, "Backups (Velero)"). The claims survive either
+  way; an adopted pod does not get the new volume, it wedges the controller.
   */}}
   {{- if $backup }}
   - metadata:
