@@ -335,6 +335,15 @@ class Location(models.Model):
         """True for the protected, migration-seeded ``Default`` location."""
         return self.name == DEFAULT_LOCATION_NAME
 
+    @property
+    def sort_key(self) -> tuple[bool, str]:
+        """The key the list screens order locations by (issue #80).
+
+        By name, case-insensitively, with the special ``Default`` location
+        last. The presence and access-key lists order by it too.
+        """
+        return (self.is_default, self.name.casefold())
+
 
 class AccessKey(models.Model):
     """A named secret that protects API access to one or more presences.
