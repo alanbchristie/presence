@@ -1,0 +1,15 @@
+{% autoescape off %}# Binary sensors that rely on our 'presence REST service' deployment.
+# See https://github.com/alanbchristie/presence
+#
+# The remote 'presence' REST service can provide a number of random sequences
+# categorised by name and responds with a JSON payload
+# that includes a "state" that is either "on" (lights on) or "off".
+binary_sensor:
+- platform: rest
+  name: {{ name }}
+  resource: {{ resource }}
+  headers:
+    X-API-Key: {{ api_key }}
+{% verbatim %}  value_template: "{{ value_json.state }}"
+  icon: "{{ 'mdi:shield-home' }}"
+{% endverbatim %}{% endautoescape %}

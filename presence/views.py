@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -151,6 +152,40 @@ def detail_json(request, identifier: str):
     """
     presence = get_object_or_404(Presence, identifier=identifier)
     return JsonResponse(_serialize(presence), json_dumps_params={"indent": 2})
+
+
+def _yaml_str(value: str) -> str:
+    """Quote ``value`` as a YAML scalar.
+
+    A JSON string is also a valid YAML double-quoted scalar, so this safely
+    carries any character (``:``, ``#``, quotes, …) without a YAML library.
+    """
+    return json.dumps(value)
+
+
+@login_required
+@require_GET
+def detail_ha_binary_sensor(request, identifier: str):
+    """The Home Assistant ``binary_sensor`` YAML that polls this presence.
+
+    Served as plain text for the operator to paste into ``configuration.yaml``
+    (issue #78). The resource is the absolute URL of the key-protected API
+    endpoint as this request reached us, and the header carries the
+    presence's real access key, so the snippet works without editing.
+    """
+    presence = get_object_or_404(Presence, identifier=identifier)
+    api_url = request.build_absolute_uri(reverse("presence:detail", args=[identifier]))
+    context = {
+        "name": _yaml_str(f"Presence Simulator ({presence.name})"),
+        "resource": _yaml_str(api_url),
+        "api_key": _yaml_str(presence.access_key.value),
+    }
+    return render(
+        request,
+        "presence/ha_binary_sensor.yaml",
+        context,
+        content_type="text/plain; charset=utf-8",
+    )
 
 
 @login_required
