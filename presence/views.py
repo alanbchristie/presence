@@ -114,10 +114,11 @@ def _selected_location_id(request) -> int | None:
 @login_required
 @require_GET
 def index(request):
-    presences = Presence.objects.order_by("name")
+    presences = Presence.objects.select_related("location")
     selected = _selected_location_id(request)
     if selected is not None:
         presences = presences.filter(location_id=selected)
+    presences = sorted(presences, key=lambda p: (p.location.sort_key, p.name.casefold()))
     return render(
         request,
         "presence/index.html",
@@ -260,13 +261,14 @@ def delete(request, identifier: str):
 @login_required
 @require_GET
 def access_key_index(request):
-    keys = AccessKey.objects.order_by("name")
+    keys = AccessKey.objects.prefetch_related("presences__location")
     selected = _selected_location_id(request)
     if selected is not None:
         # A key's location(s) are derived through the presences that use it, so
         # narrow to keys used by any presence at the selected location. distinct
         # collapses a key shared by several presences there into one row.
         keys = keys.filter(presences__location_id=selected).distinct()
+    keys = sorted(keys, key=_access_key_sort_key)
     return render(
         request,
         "presence/access_key/index.html",
@@ -276,6 +278,19 @@ def access_key_index(request):
             "selected_location": selected,
         },
     )
+
+
+def _access_key_sort_key(key: AccessKey) -> tuple:
+    """Order a key by the first location (in list order) that uses it.
+
+    A key can serve presences at several locations, so its earliest one
+    places it (issue #80); keys no presence uses sort after all the rest.
+    Ties break on the key's name. Reads the prefetched presences.
+    """
+    location_keys = [p.location.sort_key for p in key.presences.all()]
+    if location_keys:
+        return (False, min(location_keys), key.name.casefold())
+    return (True, (), key.name.casefold())
 
 
 @login_required
@@ -500,7 +515,7 @@ def map_status(request):
 @login_required
 @require_GET
 def location_index(request):
-    locations = Location.objects.order_by("name")
+    locations = sorted(Location.objects.all(), key=lambda location: location.sort_key)
     return render(request, "presence/location/index.html", {"locations": locations})
 
 
