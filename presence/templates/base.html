@@ -37,6 +37,11 @@
         </ul>
         {% endif %}
         <ul class="navbar-nav ms-auto align-items-lg-center">
+          {% if user.is_authenticated %}
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'user_guide' %}">User guide</a>
+          </li>
+          {% endif %}
           <li class="nav-item">
             <button type="button" class="btn btn-link nav-link"
                     data-bs-toggle="modal" data-bs-target="#aboutModal">About</button>

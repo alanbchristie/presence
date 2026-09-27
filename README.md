@@ -674,7 +674,8 @@ Content-Type: application/json
 HTTPie is in the `dev` dependency group; install it locally with `uv sync --group dev` (or run on demand with `uvx httpie`).
 
 - Missing or wrong `X-API-Key` (it must match the presence's linked access key) → `403`.
-- Unknown identifier → `404`.
+- Unknown identifier → the same `403`, so callers cannot discover which presences exist.
+- Repeated failures from one client address → `429` for a while.
 
 ## Development (without Docker)
 

@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+
+{% block title %}User guide &mdash; Presence{% endblock %}
+
+{% block content %}
+<div class="col-lg-9">
+  <h1 class="h3">User guide</h1>
+  <p class="text-secondary small">What Presence does, how to set it up, and how it works.</p>
+
+  <h2 class="h5 mt-4">What it is for</h2>
+  <p>
+    Presence makes an empty building look occupied. Each <strong>presence</strong>
+    record switches between <strong>on</strong> and <strong>off</strong> at random
+    times, but only during a daily <strong>window</strong>, for example from an
+    hour before sunset until half past eleven.
+  </p>
+  <p>
+    Presence does not control any devices itself. It publishes each presence's
+    current state through a small API, and a home-automation system such as
+    Home Assistant reads that state and switches a real light (or anything else)
+    to match. Because the on and off periods change every time, the lights never
+    follow the same pattern two nights in a row.
+  </p>
+  <p>There are three kinds of record, set up in this order:</p>
+  <ol>
+    <li><strong>Locations</strong> say where presences are, which sets their timezone and sunset/sunrise times.</li>
+    <li><strong>Access keys</strong> are the secrets a home-automation system uses to read a presence's state.</li>
+    <li><strong>Presences</strong> are the individual on/off schedules, each at a location and protected by a key.</li>
+  </ol>
+
+  <h2 class="h5 mt-4">Locations</h2>
+  <p>
+    A location is a named place, such as a house. Settings that depend on
+    <em>where</em> a presence is are set on its location, so all the presences
+    at one place share them:
+  </p>
+  <ul>
+    <li>
+      <strong>Timezone</strong> is an IANA name such as <code>Europe/London</code>.
+      Wall-clock window times, and the times shown for each presence, use this
+      timezone.
+    </li>
+    <li>
+      <strong>City</strong> is a city from the built-in astronomical database,
+      used to work out sunset and sunrise. You only need it if a presence at
+      this location has a window edge set relative to sunset or sunrise.
+    </li>
+    <li>
+      <strong>Position</strong> is optional. It sets where the location's marker
+      appears on the <a href="{% url 'map' %}">Map</a>, instead of at its city.
+      Enter it as a latitude/longitude pair or a What3Words address.
+    </li>
+  </ul>
+  <p>
+    The <strong>Default</strong> location always exists. Presences created
+    without a location are placed there. It cannot be renamed or deleted, and
+    no location can be deleted while presences use it.
+  </p>
+
+  <h2 class="h5 mt-4">Access keys</h2>
+  <p>
+    An access key is a named secret. When the value is first created it is a
+    random string, and a home-automation system must send it with each request
+    to read a presence's state. Every presence is protected by exactly one key.
+  </p>
+  <div class="alert alert-info">
+    <strong>Ideally, give each presence its own access key.</strong>
+    If a key is ever exposed, only that one presence is affected, and you can
+    regenerate or replace it without changing anything else. Where that is not
+    practical, presences at the same location can share a key, but a key can
+    never be used at more than one location.
+  </div>
+  <p>
+    You can create a key on the <a href="{% url 'access_key_index' %}">Access keys</a>
+    page, or while adding a presence by typing a new key name on the presence
+    form. <strong>Regenerate</strong> replaces a key's value, and the old value
+    stops working straight away, so remember to update whatever reads it. A key
+    that is in use cannot be deleted.
+  </p>
+
+  <h2 class="h5 mt-4">Presences</h2>
+  <p>Add a presence from the <a href="{% url 'index' %}">Presences</a> page. Its settings are:</p>
+  <dl class="row">
+    <dt class="col-sm-3">Identifier</dt>
+    <dd class="col-sm-9">
+      A unique, URL-safe name such as <code>living-room</code>, made of lowercase
+      letters, digits and hyphens. It is part of the presence's API address.
+    </dd>
+
+    <dt class="col-sm-3">Name</dt>
+    <dd class="col-sm-9">A readable label, such as "Living room lamp".</dd>
+
+    <dt class="col-sm-3">Enabled</dt>
+    <dd class="col-sm-9">Untick to pause a presence without deleting it. A paused presence is left in whatever state it was in.</dd>
+
+    <dt class="col-sm-3">Location</dt>
+    <dd class="col-sm-9">Where the presence is. If you leave it blank, the Default location is used.</dd>
+
+    <dt class="col-sm-3">Access key</dt>
+    <dd class="col-sm-9">Choose an existing key, or type a name to create a new one.</dd>
+
+    <dt class="col-sm-3">Window</dt>
+    <dd class="col-sm-9">
+      <p class="mb-1">
+        When the presence is active each day. Each edge (<strong>Open</strong>
+        and <strong>Close</strong>) can be written in one of two ways:
+      </p>
+      <ul class="mb-1">
+        <li>
+          <code>HH:MM</code> is a wall-clock time in the location's timezone.
+          For example, <code>23:30</code>.
+        </li>
+        <li>
+          <code>+HH:MM</code> or <code>-HH:MM</code> is an offset from
+          <em>sunset</em> for Open, or from <em>sunrise</em> for Close. For
+          example, <code>-01:00</code> opens an hour before sunset. The location
+          must have a city for this.
+        </li>
+      </ul>
+      <p class="mb-0">
+        The sign is what matters: <code>+00:00</code> is exactly at sunset (or
+        sunrise), while <code>00:00</code> is midnight. If Close is at or before
+        Open, the window runs past midnight.
+      </p>
+    </dd>
+
+    <dt class="col-sm-3">On / Off</dt>
+    <dd class="col-sm-9">
+      The shortest and longest time for each on and off period, written as
+      <code>HH:MM:SS</code>. The minimum is one minute, and Max must not be less
+      than Min. Each period is a random length between the two, so a wider range
+      gives a less predictable pattern.
+    </dd>
+  </dl>
+  <p>
+    <strong>Duplicate</strong> on a presence's page opens a new presence with the
+    same settings. You only need to give it a new identifier and name.
+  </p>
+
+  <h2 class="h5 mt-4">Using a presence</h2>
+  <p>
+    Each presence's current state is available from the API. Send the
+    presence's access key value in the <code>X-API-Key</code> header:
+  </p>
+  <pre class="bg-body-tertiary border rounded p-2 small"><code>curl -H "X-API-Key: &lt;key value&gt;" {{ api_example }}</code></pre>
+  <p>
+    The JSON reply includes <code>"state"</code> (<code>"on"</code> or
+    <code>"off"</code>), and when the state will next change. If a request has a
+    missing or wrong key, or names a presence that does not exist, it receives
+    the same <code>403</code> response. After repeated failures, requests from
+    that address are temporarily refused.
+  </p>
+  <p>
+    A presence's page links to <strong>View as JSON</strong> and to
+    <strong>View as HA Binary Sensor</strong>, which is a ready-made Home
+    Assistant sensor (see <a href="#home-assistant">Home Assistant</a> below). The
+    <a href="{% url 'map' %}">Map</a> shows each location's current state,
+    with the parts of the world where it is night shaded.
+  </p>
+
+  <h2 class="h5 mt-4" id="home-assistant">Home Assistant</h2>
+  <p>
+    Using a presence in Home Assistant takes two steps. First, add a
+    <strong>binary sensor</strong> that reads the presence's state. Then add an
+    <strong>automation</strong> that switches a light when that sensor changes.
+  </p>
+
+  <h3 class="h6 mt-3">1. Add the sensor</h3>
+  <p>
+    Open the presence's page and choose <strong>View as HA Binary Sensor</strong>.
+    It gives you the complete YAML, including this server's address and the
+    presence's real access key. Paste it into Home Assistant's
+    <code>configuration.yaml</code>, adding the entry under any existing
+    <code>binary_sensor:</code> heading rather than repeating the heading. Then
+    use <strong>Developer tools &rarr; YAML</strong> to check the configuration,
+    and restart Home Assistant.
+  </p>
+  <ul>
+    <li>
+      To keep the key value out of <code>configuration.yaml</code>, move it to
+      <code>secrets.yaml</code> and refer to it with
+      <code>X-API-Key: !secret presence_living_room_key</code>.
+    </li>
+    <li>
+      Home Assistant reads the sensor every 30 seconds by default. Adding
+      <code>scan_interval: 60</code> to the sensor makes it read less often.
+      The light then changes up to a minute after Presence does, which does no
+      harm when the times are random anyway.
+    </li>
+  </ul>
+  <p>
+    The sensor is named <em>Presence Simulator (&lt;name&gt;)</em>, so a
+    presence named "Living room" becomes
+    <code>binary_sensor.presence_simulator_living_room</code>. To confirm the
+    exact ID, search for "Presence Simulator" under
+    <strong>Settings &rarr; Devices &amp; services &rarr; Entities</strong>.
+  </p>
+
+  <h3 class="h6 mt-3">2. Add the automations</h3>
+  <p>
+    The sensor only reports the state. Automations make a light follow it, and
+    the simplest way is to use two: one that switches the light <strong>on</strong>
+    and one that switches it <strong>off</strong>. Go to <strong>Settings &rarr;
+    Automations &amp; scenes &rarr; Create automation &rarr; Create new
+    automation</strong>, choose <strong>Edit in YAML</strong> from the &#8942;
+    menu, and paste in each example below. Then change the entity IDs to match
+    your own.
+  </p>
+  <p>The <strong>On</strong> automation:</p>
+  <pre class="bg-body-tertiary border rounded p-2 small"><code>alias: Living room lamp (On) [Living room simulator]
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.presence_simulator_living_room
+    to: "on"
+conditions:
+  - condition: state
+    entity_id: input_boolean.away
+    state: "on"
+  - condition: state
+    entity_id: input_boolean.living_room_override
+    state: "off"
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.living_room_lamp
+    data:
+      brightness_pct: 40
+      color_temp_kelvin: 3000
+mode: single</code></pre>
+  <p>The <strong>Off</strong> automation:</p>
+  <pre class="bg-body-tertiary border rounded p-2 small"><code>alias: Living room lamp (Off) [Living room simulator]
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.presence_simulator_living_room
+    to: "off"
+conditions:
+  - condition: state
+    entity_id: input_boolean.away
+    state: "on"
+  - condition: state
+    entity_id: input_boolean.living_room_override
+    state: "off"
+actions:
+  - action: light.turn_off
+    target:
+      entity_id: light.living_room_lamp
+    data:
+      transition: 15
+mode: single</code></pre>
+  <ul>
+    <li>
+      <strong>Triggers:</strong> each automation runs only when the sensor
+      <em>becomes</em> <code>on</code> (or <code>off</code>), whatever it was
+      before. This includes the sensor recovering from <code>unavailable</code>
+      or <code>unknown</code>, for example after Home Assistant restarts or
+      loses contact with Presence for a while. Losing contact never triggers
+      anything, so a network problem does not switch your lights.
+    </li>
+    <li>
+      <strong>Away:</strong> <code>input_boolean.away</code> is a Toggle helper
+      that you create under <strong>Settings &rarr; Devices &amp; services &rarr;
+      Helpers</strong> and switch on when you leave, so the simulation only
+      controls the light while you are away. When you return and switch it off,
+      the light stays in whatever state it was left in.
+    </li>
+    <li>
+      <strong>Override:</strong> <code>input_boolean.living_room_override</code>
+      is a second Toggle helper, one per light. Switch it on to take manual
+      control of the light, and both automations will leave it alone. Without
+      it on the Off automation, the simulation would switch off a light you
+      had turned on yourself.
+    </li>
+    <li>
+      <strong>More conditions:</strong> add any other conditions to both
+      automations, for example a sensor that is off on public holidays.
+    </li>
+    <li>
+      <strong>Actions:</strong> <code>brightness_pct</code> and
+      <code>color_temp_kelvin</code> make a lamp look lived-in rather than
+      floodlit, and a <code>transition</code> fades the light out over that many
+      seconds rather than snapping it off. Drop any that a light does not
+      support. For a smart
+      plug or relay, use <code>switch.turn_on</code> and
+      <code>switch.turn_off</code>. When built in the visual editor, the target
+      is often a <code>device_id</code>. That works just as well, but an
+      <code>entity_id</code> is easier to read. The editor also adds harmless extras
+      such as <code>metadata: {}</code>, which the examples leave out.
+    </li>
+  </ul>
+  <p>
+    Naming each pair "<em>Light</em> (On) [<em>Presence</em> simulator]" keeps
+    related automations together in Home Assistant's list. For a more
+    convincing effect, give each room its own presence and pair of automations,
+    so the rooms do not all switch at the same moment.
+  </p>
+
+  <h2 class="h5 mt-4">Under the hood</h2>
+  <p>
+    Presence runs as two parts. The <strong>web application</strong> provides
+    these pages and the API. A separate background process, the
+    <strong>runner</strong>, wakes whenever a state change is due (and at
+    least every 30 seconds) and decides whether each enabled presence should
+    change state. Only one runner ever drives the
+    database, so each presence has exactly one schedule.
+  </p>
+  <p>For each presence, the runner follows these rules:</p>
+  <ul>
+    <li>Outside its window, a presence is always <strong>off</strong>.</li>
+    <li>
+      When the window opens, the presence does not switch on at the opening
+      time. It starts with a random <strong>off</strong> period, so switching on
+      never happens at a predictable moment.
+    </li>
+    <li>
+      During the window it alternates between random on and off periods, each
+      chosen between the Min and Max you set.
+    </li>
+    <li>
+      An on period that would run past the window's close is cut short at the
+      close.
+    </li>
+  </ul>
+  <p>
+    The runner saves each presence's state, when that state started, and when
+    the next change is due. These pages and the API report those saved values,
+    so what you see is exactly what a home-automation system reads.
+  </p>
+</div>
+{% endblock %}

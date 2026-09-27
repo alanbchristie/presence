@@ -450,6 +450,16 @@ def _location_status(location: Location) -> dict:
 
 @login_required
 @require_GET
+def user_guide(request):
+    """Explain what the app is for and how to configure it (issue #85)."""
+    api_example = request.build_absolute_uri(
+        reverse("presence:detail", args=["living-room"])
+    )
+    return render(request, "presence/user_guide.html", {"api_example": api_example})
+
+
+@login_required
+@require_GET
 def world_map(request):
     """World atlas with a live day/night shadow and one marker per location.
 
