@@ -397,6 +397,14 @@ class AccessKey(models.Model):
         """True when at least one presence links to this key."""
         return self.presences.exists()
 
+    @property
+    def location_count(self) -> int:
+        """The number of distinct locations of the presences using this key.
+
+        Iterates ``presences.all()`` so a list view's prefetch is reused.
+        """
+        return len({presence.location_id for presence in self.presences.all()})
+
 
 class Presence(models.Model):
     class State(models.TextChoices):
