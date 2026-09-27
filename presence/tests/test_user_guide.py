@@ -75,3 +75,5 @@ def test_guide_pairs_on_and_off_automations_with_an_override(client, staff):
     assert "action: light.turn_off" in html
     assert html.count("entity_id: input_boolean.living_room_override") == 2
     assert "brightness_pct: 40" in html
+    assert "transition: 15" in html
+    assert html.count("entity_id: input_boolean.away") == 2

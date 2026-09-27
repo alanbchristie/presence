@@ -211,7 +211,6 @@
 triggers:
   - trigger: state
     entity_id: binary_sensor.presence_simulator_living_room
-    from: ["off", unavailable, unknown]
     to: "on"
 conditions:
   - condition: state
@@ -233,9 +232,11 @@ mode: single</code></pre>
 triggers:
   - trigger: state
     entity_id: binary_sensor.presence_simulator_living_room
-    from: ["on", unavailable, unknown]
     to: "off"
 conditions:
+  - condition: state
+    entity_id: input_boolean.away
+    state: "on"
   - condition: state
     entity_id: input_boolean.living_room_override
     state: "off"
@@ -243,42 +244,47 @@ actions:
   - action: light.turn_off
     target:
       entity_id: light.living_room_lamp
+    data:
+      transition: 15
 mode: single</code></pre>
   <ul>
     <li>
       <strong>Triggers:</strong> each automation runs only when the sensor
-      <em>becomes</em> <code>on</code> (or <code>off</code>). This includes the
-      sensor recovering from <code>unavailable</code> or <code>unknown</code>,
-      for example after Home Assistant restarts or loses contact with Presence
-      for a while. Losing contact never triggers anything, so a network problem
-      does not switch your lights.
+      <em>becomes</em> <code>on</code> (or <code>off</code>), whatever it was
+      before. This includes the sensor recovering from <code>unavailable</code>
+      or <code>unknown</code>, for example after Home Assistant restarts or
+      loses contact with Presence for a while. Losing contact never triggers
+      anything, so a network problem does not switch your lights.
     </li>
     <li>
       <strong>Away:</strong> <code>input_boolean.away</code> is a Toggle helper
       that you create under <strong>Settings &rarr; Devices &amp; services &rarr;
       Helpers</strong> and switch on when you leave, so the simulation only
-      switches the light on while you are away. The Off automation deliberately
-      leaves this condition out. A light the simulation switched on then still
-      goes off at the end of its on period, even if you have come home in the
-      meantime.
+      controls the light while you are away. When you return and switch it off,
+      the light stays in whatever state it was left in.
     </li>
     <li>
       <strong>Override:</strong> <code>input_boolean.living_room_override</code>
       is a second Toggle helper, one per light. Switch it on to take manual
-      control of the light, and both automations will leave it alone.
+      control of the light, and both automations will leave it alone. Without
+      it on the Off automation, the simulation would switch off a light you
+      had turned on yourself.
     </li>
     <li>
-      <strong>More conditions:</strong> add any other conditions to the On
-      automation, for example a sensor that is off on public holidays.
+      <strong>More conditions:</strong> add any other conditions to both
+      automations, for example a sensor that is off on public holidays.
     </li>
     <li>
       <strong>Actions:</strong> <code>brightness_pct</code> and
       <code>color_temp_kelvin</code> make a lamp look lived-in rather than
-      floodlit, so drop them for a light that does not support them. For a smart
+      floodlit, and a <code>transition</code> fades the light out over that many
+      seconds rather than snapping it off. Drop any that a light does not
+      support. For a smart
       plug or relay, use <code>switch.turn_on</code> and
       <code>switch.turn_off</code>. When built in the visual editor, the target
       is often a <code>device_id</code>. That works just as well, but an
-      <code>entity_id</code> is easier to read.
+      <code>entity_id</code> is easier to read. The editor also adds harmless extras
+      such as <code>metadata: {}</code>, which the examples leave out.
     </li>
   </ul>
   <p>
