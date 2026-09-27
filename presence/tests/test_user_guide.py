@@ -32,6 +32,7 @@ def test_guide_covers_the_app_and_each_record_type(client, staff):
         "Access keys",
         "Presences",
         "Using a presence",
+        "Home Assistant",
         "Under the hood",
     ]
 
@@ -53,3 +54,12 @@ def test_menu_hides_the_guide_when_logged_out(client):
     html = client.get(reverse("login")).content.decode()
 
     assert "User guide" not in html
+
+
+def test_guide_shows_a_home_assistant_automation(client, staff):
+    html = client.get(reverse("user_guide")).content.decode()
+
+    # The sensor's entity id follows from the name the HA snippet gives it.
+    assert "binary_sensor.presence_simulator_living_room" in html
+    assert "- trigger: state" in html
+    assert "action: light.turn_on" in html
