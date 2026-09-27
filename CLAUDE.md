@@ -92,7 +92,9 @@ that — and both Deployments use `Recreate`. `presence/tests/test_helm_chart.py
 renders the chart with `helm template` and asserts these invariants, so they
 fail loudly if someone parameterises them; CI additionally lints the chart and
 validates every value permutation with kubeconform (the `helm` job of
-`.github/workflows/build.yml`). Chart-facing config follows the same pattern
+`.github/workflows/build.yml`). The PostgreSQL StatefulSet's **pod template**
+deliberately omits `presence.labels` (issue #90): its version and chart labels
+change on every release, and any pod-template change restarts the database. Chart-facing config follows the same pattern
 as the rest: env var → `settings.py` → `values.yaml` → the pod's env.
 
 The chart carries **no `appVersion` and no default `image.tag`** — the
