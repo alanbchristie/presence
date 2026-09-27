@@ -27,7 +27,8 @@
     <thead>
       <tr>
         <th scope="col">Name</th>
-        <th scope="col" class="text-center">Used by</th>
+        <th scope="col" class="text-center"><a href="{% url 'index' %}" class="link-secondary text-decoration-none">Presences</a></th>
+        <th scope="col" class="text-center"><a href="{% url 'location_index' %}" class="link-secondary text-decoration-none">Locations</a></th>
         <th scope="col" class="text-center">Status</th>
       </tr>
     </thead>
@@ -37,7 +38,8 @@
         <td class="fw-semibold">
           <a href="{% url 'access_key_detail' key.pk %}" class="link-secondary text-decoration-none">{{ key.name }}</a>
         </td>
-        <td class="text-center">{{ key.presences.count }}</td>
+        <td class="text-center">{{ key.presences.all|length }}</td>
+        <td class="text-center">{{ key.location_count }}</td>
         <td class="text-center">
           {% if key.in_use %}
             <span class="badge rounded-pill text-bg-success">In use</span>
