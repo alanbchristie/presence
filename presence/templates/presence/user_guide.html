@@ -196,71 +196,96 @@
     <strong>Settings &rarr; Devices &amp; services &rarr; Entities</strong>.
   </p>
 
-  <h3 class="h6 mt-3">2. Add an automation</h3>
+  <h3 class="h6 mt-3">2. Add the automations</h3>
   <p>
-    The sensor only reports the state. An automation makes a light follow it.
-    Go to <strong>Settings &rarr; Automations &amp; scenes &rarr; Create automation
-    &rarr; Create new automation</strong>, choose <strong>Edit in YAML</strong>
-    from the &#8942; menu, and paste in the example below. Then change the
-    entity IDs to match your own.
+    The sensor only reports the state. Automations make a light follow it, and
+    the simplest way is to use two: one that switches the light <strong>on</strong>
+    and one that switches it <strong>off</strong>. Go to <strong>Settings &rarr;
+    Automations &amp; scenes &rarr; Create automation &rarr; Create new
+    automation</strong>, choose <strong>Edit in YAML</strong> from the &#8942;
+    menu, and paste in each example below. Then change the entity IDs to match
+    your own.
   </p>
-  <pre class="bg-body-tertiary border rounded p-2 small"><code>alias: Living room lamp follows Presence
-description: Switch the lamp with the Presence simulator while we are away.
+  <p>The <strong>On</strong> automation:</p>
+  <pre class="bg-body-tertiary border rounded p-2 small"><code>alias: Living room lamp (On) [Living room simulator]
 triggers:
   - trigger: state
     entity_id: binary_sensor.presence_simulator_living_room
+    from: ["off", unavailable, unknown]
     to: "on"
-    id: "on"
-  - trigger: state
-    entity_id: binary_sensor.presence_simulator_living_room
-    to: "off"
-    id: "off"
 conditions:
   - condition: state
-    entity_id: input_boolean.away_mode
+    entity_id: input_boolean.away
     state: "on"
+  - condition: state
+    entity_id: input_boolean.living_room_override
+    state: "off"
 actions:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: "on"
-        sequence:
-          - action: light.turn_on
-            target:
-              entity_id: light.living_room_lamp
-      - conditions:
-          - condition: trigger
-            id: "off"
-        sequence:
-          - action: light.turn_off
-            target:
-              entity_id: light.living_room_lamp</code></pre>
+  - action: light.turn_on
+    target:
+      entity_id: light.living_room_lamp
+    data:
+      brightness_pct: 40
+      color_temp_kelvin: 3000
+mode: single</code></pre>
+  <p>The <strong>Off</strong> automation:</p>
+  <pre class="bg-body-tertiary border rounded p-2 small"><code>alias: Living room lamp (Off) [Living room simulator]
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.presence_simulator_living_room
+    from: ["on", unavailable, unknown]
+    to: "off"
+conditions:
+  - condition: state
+    entity_id: input_boolean.living_room_override
+    state: "off"
+actions:
+  - action: light.turn_off
+    target:
+      entity_id: light.living_room_lamp
+mode: single</code></pre>
   <ul>
     <li>
-      <strong>Triggers:</strong> the automation runs only when the sensor
-      becomes <code>on</code> or <code>off</code>. If Home Assistant cannot
-      reach Presence, the sensor becomes <code>unavailable</code>, which
-      triggers nothing, so a network problem never switches your lights.
+      <strong>Triggers:</strong> each automation runs only when the sensor
+      <em>becomes</em> <code>on</code> (or <code>off</code>). This includes the
+      sensor recovering from <code>unavailable</code> or <code>unknown</code>,
+      for example after Home Assistant restarts or loses contact with Presence
+      for a while. Losing contact never triggers anything, so a network problem
+      does not switch your lights.
     </li>
     <li>
-      <strong>Condition:</strong> the light only follows the simulation while
-      you are away. <code>input_boolean.away_mode</code> is a Toggle helper that
-      you create under <strong>Settings &rarr; Devices &amp; services &rarr;
-      Helpers</strong> and switch on when you leave. To make this automatic
-      instead, use <code>entity_id: zone.home</code> with <code>state: "0"</code>.
-      That zone's state is the number of people at home.
+      <strong>Away:</strong> <code>input_boolean.away</code> is a Toggle helper
+      that you create under <strong>Settings &rarr; Devices &amp; services &rarr;
+      Helpers</strong> and switch on when you leave, so the simulation only
+      switches the light on while you are away. The Off automation deliberately
+      leaves this condition out. A light the simulation switched on then still
+      goes off at the end of its on period, even if you have come home in the
+      meantime.
     </li>
     <li>
-      <strong>Actions:</strong> for a smart plug or relay, use
-      <code>switch.turn_on</code> and <code>switch.turn_off</code> instead. You can
-      list several entities under <code>entity_id</code> to switch them together.
+      <strong>Override:</strong> <code>input_boolean.living_room_override</code>
+      is a second Toggle helper, one per light. Switch it on to take manual
+      control of the light, and both automations will leave it alone.
+    </li>
+    <li>
+      <strong>More conditions:</strong> add any other conditions to the On
+      automation, for example a sensor that is off on public holidays.
+    </li>
+    <li>
+      <strong>Actions:</strong> <code>brightness_pct</code> and
+      <code>color_temp_kelvin</code> make a lamp look lived-in rather than
+      floodlit, so drop them for a light that does not support them. For a smart
+      plug or relay, use <code>switch.turn_on</code> and
+      <code>switch.turn_off</code>. When built in the visual editor, the target
+      is often a <code>device_id</code>. That works just as well, but an
+      <code>entity_id</code> is easier to read.
     </li>
   </ul>
   <p>
-    For a more convincing effect, give each room its own presence and
-    automation, so the rooms do not all switch at the same moment. Also note
-    that when you return, the light stays in whatever state it was left in, so
-    include switching it off in whatever you do when you arrive home.
+    Naming each pair "<em>Light</em> (On) [<em>Presence</em> simulator]" keeps
+    related automations together in Home Assistant's list. For a more
+    convincing effect, give each room its own presence and pair of automations,
+    so the rooms do not all switch at the same moment.
   </p>
 
   <h2 class="h5 mt-4">Under the hood</h2>

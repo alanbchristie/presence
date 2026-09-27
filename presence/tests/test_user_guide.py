@@ -63,3 +63,15 @@ def test_guide_shows_a_home_assistant_automation(client, staff):
     assert "binary_sensor.presence_simulator_living_room" in html
     assert "- trigger: state" in html
     assert "action: light.turn_on" in html
+
+
+def test_guide_pairs_on_and_off_automations_with_an_override(client, staff):
+    """The example follows a real deployment: separate "On" and "Off"
+    automations, each guarded by a per-light manual override toggle."""
+    html = client.get(reverse("user_guide")).content.decode()
+
+    assert "alias: Living room lamp (On) [Living room simulator]" in html
+    assert "alias: Living room lamp (Off) [Living room simulator]" in html
+    assert "action: light.turn_off" in html
+    assert html.count("entity_id: input_boolean.living_room_override") == 2
+    assert "brightness_pct: 40" in html
