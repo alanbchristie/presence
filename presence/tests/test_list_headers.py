@@ -1,16 +1,14 @@
 """Tests for the list screens' columns, header links and menu (issues #82-#84).
 
 A count column's header names the list it counts and links to it: the access
-keys' "Presences" and "Locations", the presences' "Location" and the
-locations' "Presences". Access keys also count the distinct locations their
-presences sit at, and the menu lists "Map" last.
+keys' "Presences" and "Location", the presences' "Location" and the
+locations' "Presences". The menu lists "Map" last. (A key's location column,
+a count here in #82, names the key's one location since #87.)
 """
 import re
 
 import pytest
 from django.urls import reverse
-
-from presence.models import AccessKey, Location
 
 pytestmark = pytest.mark.django_db
 
@@ -31,35 +29,22 @@ def _header_link(html: str, text: str) -> str | None:
 # --- #82: access keys ----------------------------------------------------
 
 
-def test_access_key_location_count_counts_distinct_locations(make_presence, access_key):
-    elsewhere = Location.objects.create(name="Elsewhere", timezone="UTC")
-    make_presence(identifier="a").save()
-    make_presence(identifier="b").save()
-    make_presence(identifier="c", location=elsewhere).save()
-
-    assert access_key.location_count == 2
-
-
-def test_unused_access_key_has_no_locations():
-    assert AccessKey.objects.create(name="Spare").location_count == 0
-
-
-def test_access_key_list_counts_presences_and_locations(client, staff, make_presence):
+def test_access_key_list_counts_presences(client, staff, make_presence):
     make_presence(identifier="a").save()
     make_presence(identifier="b").save()
 
     html = client.get(reverse("access_key_index")).content.decode()
 
     assert "Used by" not in html
-    row = re.search(r"Test Key</a>\s*</td>\s*<td[^>]*>(\d+)</td>\s*<td[^>]*>(\d+)</td>", html)
-    assert row.groups() == ("2", "1")
+    row = re.search(r"Test Key</a>\s*</td>\s*<td[^>]*>(\d+)</td>", html)
+    assert row.group(1) == "2"
 
 
 def test_access_key_list_headers_link_to_their_lists(client, staff, access_key):
     html = client.get(reverse("access_key_index")).content.decode()
 
     assert _header_link(html, "Presences") == reverse("index")
-    assert _header_link(html, "Locations") == reverse("location_index")
+    assert _header_link(html, "Location") == reverse("location_index")
 
 
 def test_menu_lists_map_last(client, staff):

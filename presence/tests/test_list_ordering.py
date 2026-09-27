@@ -77,13 +77,11 @@ def test_presences_location_filter_still_applies(client, staff, make_presence, p
 def test_access_keys_list_by_location_with_unused_last(client, staff, make_presence, places):
     at_default = AccessKey.objects.create(name="A at Default")
     at_zoo = AccessKey.objects.create(name="B at Zoo")
-    # Used at Default and Attic: its earliest location (Attic) places it.
     at_attic = AccessKey.objects.create(name="C at Attic")
     unused = AccessKey.objects.create(name="D unused")
     make_presence(identifier="p1", access_key=at_default, location=places["Default"]).save()
     make_presence(identifier="p2", access_key=at_zoo, location=places["Zoo"]).save()
-    make_presence(identifier="p3", access_key=at_attic, location=places["Default"]).save()
-    make_presence(identifier="p4", access_key=at_attic, location=places["Attic"]).save()
+    make_presence(identifier="p3", access_key=at_attic, location=places["Attic"]).save()
 
     response = client.get(reverse("access_key_index"))
 

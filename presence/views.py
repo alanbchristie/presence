@@ -281,15 +281,14 @@ def access_key_index(request):
 
 
 def _access_key_sort_key(key: AccessKey) -> tuple:
-    """Order a key by the first location (in list order) that uses it.
+    """Order a key by its location, in location list order (issue #80).
 
-    A key can serve presences at several locations, so its earliest one
-    places it (issue #80); keys no presence uses sort after all the rest.
+    Keys no presence uses (so without a location) sort after all the rest.
     Ties break on the key's name. Reads the prefetched presences.
     """
-    location_keys = [p.location.sort_key for p in key.presences.all()]
-    if location_keys:
-        return (False, min(location_keys), key.name.casefold())
+    location = key.location
+    if location is not None:
+        return (False, location.sort_key, key.name.casefold())
     return (True, (), key.name.casefold())
 
 
