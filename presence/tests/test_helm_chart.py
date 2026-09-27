@@ -185,6 +185,45 @@ def test_version_label_tracks_the_image_tag():
             )
 
 
+def _pod_template(docs, kind, name_suffix):
+    return one(docs, kind, name_suffix)["spec"]["template"]
+
+
+def test_an_app_upgrade_leaves_the_postgresql_pod_alone():
+    """Changing only `image.tag` must not roll the database (issue #90).
+
+    A StatefulSet recreates its pod whenever the pod template changes, so the
+    PostgreSQL template must not carry anything derived from the app image,
+    while the web and runner templates must (their image changes).
+    """
+    before = render("--set", "image.tag=1.0.0")
+    after = render("--set", "image.tag=1.1.0")
+
+    assert _pod_template(before, "StatefulSet", "-postgresql") == _pod_template(
+        after, "StatefulSet", "-postgresql"
+    )
+    for suffix in ("-web", "-runner"):
+        assert _pod_template(before, "Deployment", suffix) != _pod_template(
+            after, "Deployment", suffix
+        )
+
+
+def test_the_postgresql_pod_carries_no_version_labels():
+    """Neither the app version nor the chart version labels the database pod.
+
+    `helm.sh/chart` changes with every chart release, so it would roll the
+    database on a chart bump just as `app.kubernetes.io/version` does on an
+    app release (issue #90). The StatefulSet's own metadata keeps both.
+    """
+    statefulset = one(render(), "StatefulSet", "-postgresql")
+    pod_labels = statefulset["spec"]["template"]["metadata"]["labels"]
+
+    assert "app.kubernetes.io/version" not in pod_labels
+    assert "helm.sh/chart" not in pod_labels
+    assert pod_labels["app.kubernetes.io/component"] == "postgresql"
+    assert "app.kubernetes.io/version" in statefulset["metadata"]["labels"]
+
+
 EXAMPLE_VALUES = REPO_ROOT / "helm" / "values.example.yaml"
 
 

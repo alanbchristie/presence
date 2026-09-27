@@ -206,7 +206,10 @@ helm upgrade --install presence ./helm/presence \
 Both Deployments use the `Recreate` strategy, so the old pod stops before the
 new one starts — no rolling window in which two runners drive one database, or
 two web workers hold separate rate-limit caches. Expect a few seconds of
-downtime on every upgrade; that is the deliberate trade. Migrations run from
+downtime on every upgrade; that is the deliberate trade. The PostgreSQL pod
+is not restarted by an application upgrade: its pod labels carry neither the
+app nor the chart version, so only a change to the database's own
+configuration rolls it. Migrations run from
 the web pod's entrypoint as usual, and the runner's init container waits for
 them.
 

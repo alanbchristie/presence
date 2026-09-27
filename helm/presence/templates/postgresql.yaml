@@ -56,9 +56,16 @@ spec:
       {{- include "presence.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 6 }}
   template:
     metadata:
+      {{/*
+      Deliberately not "presence.labels": its app.kubernetes.io/version
+      follows image.tag and its helm.sh/chart follows the chart version, and a
+      StatefulSet recreates its pod whenever the pod template changes. With
+      them here, every app or chart upgrade restarted the database (issue
+      #90). The StatefulSet's own metadata above keeps the full set.
+      */}}
       labels:
-        {{- include "presence.labels" . | nindent 8 }}
-        app.kubernetes.io/component: postgresql
+        {{- include "presence.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 8 }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
       {{/*
       Velero's File System Backup is opt-in per pod: it copies only the
       volumes this annotation names, matching them by the name the *pod*
