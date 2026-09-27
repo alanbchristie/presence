@@ -629,7 +629,7 @@ without Docker Hub credentials publish nothing.
 
 ## API
 
-`GET /api/presence/<identifier>/` returns a JSON object describing the row, where `<identifier>` is the row's RFC 1123-style identifier (e.g. `living-room`, `sequence-a`). The `X-API-Key` header must carry the value of the access key linked to that presence (create and manage keys on the **Access keys** page). Example:
+`GET /api/presence/<identifier>/` returns a JSON object describing the row, where `<identifier>` is the row's RFC 1123-style identifier (e.g. `living-room`, `sequence-a`). The `X-API-Key` header must carry the value of the access key linked to that presence (create and manage keys on the **Access keys** page). Presences at the same location may share a key, but a key cannot be used at more than one location. Example:
 
 ```
 $ curl -s -H "X-API-Key: my-secret" http://localhost:8000/api/presence/living-room/ | jq .

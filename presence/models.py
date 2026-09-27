@@ -398,12 +398,15 @@ class AccessKey(models.Model):
         return self.presences.exists()
 
     @property
-    def location_count(self) -> int:
-        """The number of distinct locations of the presences using this key.
+    def location(self) -> "Location | None":
+        """The location of the presences using this key, or None if unused.
 
-        Iterates ``presences.all()`` so a list view's prefetch is reused.
+        A key serves a single location (issue #87, enforced by
+        ``Presence.clean``), so any one of its presences names it. Iterates
+        ``presences.all()`` so a list view's prefetch is reused.
         """
-        return len({presence.location_id for presence in self.presences.all()})
+        presence = next(iter(self.presences.all()), None)
+        return presence.location if presence else None
 
 
 class Presence(models.Model):
@@ -580,6 +583,23 @@ class Presence(models.Model):
                 errors[NON_FIELD_ERRORS] = (
                     "The presence's location needs a city when either window "
                     "edge is solar-relative."
+                )
+
+        # An access key serves a single location (issue #87): reject a key that
+        # a presence at another location already uses. This also stops a
+        # presence moving away from the other presences sharing its key.
+        if self.access_key_id and self.location_id:
+            elsewhere = (
+                Presence.objects.filter(access_key_id=self.access_key_id)
+                .exclude(pk=self.pk)
+                .exclude(location_id=self.location_id)
+                .select_related("location")
+                .first()
+            )
+            if elsewhere is not None:
+                errors["access_key"] = (
+                    f'Already used at the "{elsewhere.location.name}" location; '
+                    "an access key can only be used at one location."
                 )
 
         # absolute-vs-absolute zero-length check (still meaningful when both edges absolute)

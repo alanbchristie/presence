@@ -167,7 +167,10 @@ value (`presence/auth.request_has_valid_key`, `hmac.compare_digest`). There is
 no longer a global/open mode. The initial `Default` key is seeded by migration
 `0009`. Access keys are
 managed in the web UI (`access-key/*` routes); a key in use by any presence is
-PROTECTed from deletion. Timestamps render in the row's timezone; durations as
+PROTECTed from deletion. A key serves **one location only** (issue #87):
+presences at the same location may share it, but `Presence.clean()` rejects
+a key already used at another location. It is a validation rule, not a schema
+constraint, so `AccessKey.location` is derived from the key's presences. Timestamps render in the row's timezone; durations as
 `HH:MM`; the window edges are served verbatim (`HH:MM` or `±HH:MM`).
 
 An unknown identifier returns the **same** `403` as a known one with a bad key,
