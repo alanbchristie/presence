@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}User guide &mdash; Presence{% endblock %}
+
+{% block content %}
+<div class="col-lg-9">
+  <h1 class="h3">User guide</h1>
+  <p class="text-secondary small">What Presence does, how to set it up, and how it works.</p>
+
+  <h2 class="h5 mt-4">What it is for</h2>
+  <p>
+    Presence makes an empty building look occupied. Each <strong>presence</strong>
+    record switches between <strong>on</strong> and <strong>off</strong> at random
+    times, but only during a daily <strong>window</strong>, for example from an
+    hour before sunset until half past eleven.
+  </p>
+  <p>
+    Presence does not control any devices itself. It publishes each presence's
+    current state through a small API, and a home-automation system such as
+    Home Assistant reads that state and switches a real light (or anything else)
+    to match. Because the on and off periods change every time, the lights never
+    follow the same pattern two nights in a row.
+  </p>
+  <p>There are three kinds of record, set up in this order:</p>
+  <ol>
+    <li><strong>Locations</strong> say where presences are, which sets their timezone and sunset/sunrise times.</li>
+    <li><strong>Access keys</strong> are the secrets a home-automation system uses to read a presence's state.</li>
+    <li><strong>Presences</strong> are the individual on/off schedules, each at a location and protected by a key.</li>
+  </ol>
+
+  <h2 class="h5 mt-4">Locations</h2>
+  <p>
+    A location is a named place, such as a house. Settings that depend on
+    <em>where</em> a presence is are set on its location, so all the presences
+    at one place share them:
+  </p>
+  <ul>
+    <li>
+      <strong>Timezone</strong> is an IANA name such as <code>Europe/London</code>.
+      Wall-clock window times, and the times shown for each presence, use this
+      timezone.
+    </li>
+    <li>
+      <strong>City</strong> is a city from the built-in astronomical database,
+      used to work out sunset and sunrise. You only need it if a presence at
+      this location has a window edge set relative to sunset or sunrise.
+    </li>
+    <li>
+      <strong>Position</strong> is optional. It sets where the location's marker
+      appears on the <a href="{% url 'map' %}">Map</a>, instead of at its city.
+      Enter it as a latitude/longitude pair or a What3Words address.
+    </li>
+  </ul>
+  <p>
+    The <strong>Default</strong> location always exists. Presences created
+    without a location are placed there. It cannot be renamed or deleted, and
+    no location can be deleted while presences use it.
+  </p>
+
+  <h2 class="h5 mt-4">Access keys</h2>
+  <p>
+    An access key is a named secret. When the value is first created it is a
+    random string, and a home-automation system must send it with each request
+    to read a presence's state. Every presence is protected by exactly one key.
+  </p>
+  <div class="alert alert-info">
+    <strong>Ideally, give each presence its own access key.</strong>
+    If a key is ever exposed, only that one presence is affected, and you can
+    regenerate or replace it without changing anything else. Where that is not
+    practical, presences at the same location can share a key, but a key can
+    never be used at more than one location.
+  </div>
+  <p>
+    You can create a key on the <a href="{% url 'access_key_index' %}">Access keys</a>
+    page, or while adding a presence by typing a new key name on the presence
+    form. <strong>Regenerate</strong> replaces a key's value, and the old value
+    stops working straight away, so remember to update whatever reads it. A key
+    that is in use cannot be deleted.
+  </p>
+
+  <h2 class="h5 mt-4">Presences</h2>
+  <p>Add a presence from the <a href="{% url 'index' %}">Presences</a> page. Its settings are:</p>
+  <dl class="row">
+    <dt class="col-sm-3">Identifier</dt>
+    <dd class="col-sm-9">
+      A unique, URL-safe name such as <code>living-room</code>, made of lowercase
+      letters, digits and hyphens. It is part of the presence's API address.
+    </dd>
+
+    <dt class="col-sm-3">Name</dt>
+    <dd class="col-sm-9">A readable label, such as "Living room lamp".</dd>
+
+    <dt class="col-sm-3">Enabled</dt>
+    <dd class="col-sm-9">Untick to pause a presence without deleting it. A paused presence is left in whatever state it was in.</dd>
+
+    <dt class="col-sm-3">Location</dt>
+    <dd class="col-sm-9">Where the presence is. If you leave it blank, the Default location is used.</dd>
+
+    <dt class="col-sm-3">Access key</dt>
+    <dd class="col-sm-9">Choose an existing key, or type a name to create a new one.</dd>
+
+    <dt class="col-sm-3">Window</dt>
+    <dd class="col-sm-9">
+      <p class="mb-1">
+        When the presence is active each day. Each edge (<strong>Open</strong>
+        and <strong>Close</strong>) can be written in one of two ways:
+      </p>
+      <ul class="mb-1">
+        <li>
+          <code>HH:MM</code> is a wall-clock time in the location's timezone.
+          For example, <code>23:30</code>.
+        </li>
+        <li>
+          <code>+HH:MM</code> or <code>-HH:MM</code> is an offset from
+          <em>sunset</em> for Open, or from <em>sunrise</em> for Close. For
+          example, <code>-01:00</code> opens an hour before sunset. The location
+          must have a city for this.
+        </li>
+      </ul>
+      <p class="mb-0">
+        The sign is what matters: <code>+00:00</code> is exactly at sunset (or
+        sunrise), while <code>00:00</code> is midnight. If Close is at or before
+        Open, the window runs past midnight.
+      </p>
+    </dd>
+
+    <dt class="col-sm-3">On / Off</dt>
+    <dd class="col-sm-9">
+      The shortest and longest time for each on and off period, written as
+      <code>HH:MM:SS</code>. The minimum is one minute, and Max must not be less
+      than Min. Each period is a random length between the two, so a wider range
+      gives a less predictable pattern.
+    </dd>
+  </dl>
+  <p>
+    <strong>Duplicate</strong> on a presence's page opens a new presence with the
+    same settings. You only need to give it a new identifier and name.
+  </p>
+
+  <h2 class="h5 mt-4">Using a presence</h2>
+  <p>
+    Each presence's current state is available from the API. Send the
+    presence's access key value in the <code>X-API-Key</code> header:
+  </p>
+  <pre class="bg-body-tertiary border rounded p-2 small"><code>curl -H "X-API-Key: &lt;key value&gt;" {{ api_example }}</code></pre>
+  <p>
+    The JSON reply includes <code>"state"</code> (<code>"on"</code> or
+    <code>"off"</code>), and when the state will next change. If a request has a
+    missing or wrong key, or names a presence that does not exist, it receives
+    the same <code>403</code> response. After repeated failures, requests from
+    that address are temporarily refused.
+  </p>
+  <p>
+    A presence's page links to <strong>View as JSON</strong> and to
+    <strong>View as HA Binary Sensor</strong>, which is a ready-made Home
+    Assistant sensor that you can paste into your configuration. The
+    <a href="{% url 'map' %}">Map</a> shows each location's current state,
+    with the parts of the world where it is night shaded.
+  </p>
+
+  <h2 class="h5 mt-4">Under the hood</h2>
+  <p>
+    Presence runs as two parts. The <strong>web application</strong> provides
+    these pages and the API. A separate background process, the
+    <strong>runner</strong>, wakes whenever a state change is due (and at
+    least every 30 seconds) and decides whether each enabled presence should
+    change state. Only one runner ever drives the
+    database, so each presence has exactly one schedule.
+  </p>
+  <p>For each presence, the runner follows these rules:</p>
+  <ul>
+    <li>Outside its window, a presence is always <strong>off</strong>.</li>
+    <li>
+      When the window opens, the presence does not switch on at the opening
+      time. It starts with a random <strong>off</strong> period, so switching on
+      never happens at a predictable moment.
+    </li>
+    <li>
+      During the window it alternates between random on and off periods, each
+      chosen between the Min and Max you set.
+    </li>
+    <li>
+      An on period that would run past the window's close is cut short at the
+      close.
+    </li>
+  </ul>
+  <p>
+    The runner saves each presence's state, when that state started, and when
+    the next change is due. These pages and the API report those saved values,
+    so what you see is exactly what a home-automation system reads.
+  </p>
+</div>
+{% endblock %}
