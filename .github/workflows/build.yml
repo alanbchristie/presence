@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # Full history + tags so `git describe` can resolve a tagged build.
           fetch-depth: 0
@@ -57,23 +57,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # Tags, so test_helm_chart.py can check the chart's default image
           # tag against the newest release rather than skipping.
           fetch-depth: 0
 
       - name: Install uv
-        # Pinned to a full version: setup-uv publishes no moving `v8` major
+        # Pinned to a full version: setup-uv publishes no moving `v10` major
         # tag (only v8.x.y), unlike the other actions here.
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
 
       - name: Install helm
         # test_helm_chart.py renders helm/presence and asserts the deployment
         # invariants; without helm on PATH the whole module skips silently.
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -97,10 +97,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Lint the chart
         # --kube-version because the chart declares a floor of 1.36 and helm's
